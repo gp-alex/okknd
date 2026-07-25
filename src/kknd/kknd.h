@@ -267,11 +267,11 @@ typedef enum : unsigned int {
   SoundId_1 = 1,
   SoundId_2 = 2,
   SoundId_Explosion = 3,
-  SoundId_ProjHit_Rifle = 4,            ///< Rifleman, default
-  SoundId_ProjHit_MachineGun_1 = 5,     ///< Dirk Bike, 4x4, Monster Truck
-  SoundId_ProjHit_MachineGun_2 = 6,     ///< Autocannon Tank (heavy autocannon)
-  SoundId_ProjHit_MachineGun_3 = 7,     ///< Bike & Sidecar (rattling machinegun)
-  SoundId_ProjHit_MachineGun_4 = 8,     ///< ATV, Crazy Harry (light autocannon)
+  SoundId_ProjHit_Rifle = 4,            // Rifleman, default
+  SoundId_ProjHit_MachineGun_1 = 5,     // Dirk Bike, 4x4, Monster Truck
+  SoundId_ProjHit_MachineGun_2 = 6,     // Autocannon Tank (heavy autocannon)
+  SoundId_ProjHit_MachineGun_3 = 7,     // Bike & Sidecar (rattling machinegun)
+  SoundId_ProjHit_MachineGun_4 = 8,     // ATV, Crazy Harry (light autocannon)
   SoundId_Explosion_AircraftCrash = 9,
   SoundId_Explosion_Nuke = 10,
   SoundId_Ricochet_1 = 11,
@@ -280,7 +280,7 @@ typedef enum : unsigned int {
   SoundId_RocketLaunch = 14,
   SoundId_15 = 15,
   SoundId_16 = 16,
-  SoundId_ProjHit_Shotgun = 17,         ///< Shotgunner, Dire Wolf
+  SoundId_ProjHit_Shotgun = 17,         // Shotgunner, Dire Wolf
   SoundId_18 = 18,
   SoundId_19 = 19,
   SoundId_20 = 20,
@@ -521,7 +521,7 @@ typedef enum : unsigned int {
   TaskMessage_UnitSelected_or_UiLeftClick = 1511,
   TaskMessage_UnitDeselected_or_SaveLoadScrollDown_or_ShowNotificationBox = 1512,
   TaskMessage_SiderbarRightClick = 1513,
-  TaskMessage_SidebarForceClose = 1514, ///< e.g a prod building is destroyed
+  TaskMessage_SidebarForceClose = 1514, // e.g a prod building is destroyed
   TaskMessage_ShowHint_or_SaveLoadScrollUp = 1515,
   TaskMessage_HideHint = 1516,
   TaskMessage_Destroy = 1517,
@@ -532,7 +532,7 @@ typedef enum : unsigned int {
   TaskMessage_BuildingPlacementModeBegin_or_BackToMenu = 1522,
   TaskMessage_AttackOrder_or_QuitGame = 1523,
   TaskMessage_MoveOrder_or_SoundSettings_or_DoSaveGame = 1524,
-  TaskMessage_MissionAccomplished = 1524, ///< Duplicated enum value as far as I understand, used depending on context
+  TaskMessage_MissionAccomplished = 1524, // Duplicated enum value as far as I understand, used depending on context
   TaskMessage_GuardAreaOrder = 1525,
   TaskMessage_Infiltrate_or_ShowBriefing = 1526,
   TaskMessage_OpenBriefing = 1526,
@@ -605,7 +605,7 @@ typedef enum  : unsigned int {
   TaskEvent_AnimCompleted = 0x10000000,
   TaskEvent_Terminated    = 0x20000000,
   TaskEvent_Message       = 0x40000000,
-  TaskEvent_Wake          = 0x80000000,          ///< Sleep interval expired
+  TaskEvent_Wake          = 0x80000000,          // Sleep interval expired
 } TaskEvents;
 
 typedef enum : unsigned int {
@@ -639,25 +639,25 @@ struct Task {
   int sleep;
   TaskKind kind;
   TaskNetzFlags netz_flags;
-  TaskEvents transient_events;    ///< events happened this task run - zeroed out on TSK_yield()
-  TaskEvents sticky_events;       ///< sticky events that happenned over the entire lifetime (they are cleared manually in some circumstances)
+  TaskEvents transient_events;    // events happened this task run - zeroed out on TSK_yield()
+  TaskEvents sticky_events;       // sticky events that happenned over the entire lifetime (they are cleared manually in some circumstances)
   TaskWaitFlags wait_flags;
-  int wait_filter;                      ///< wake filter is actually quite weird.. it serves both as a number of ticks to sleep but also it can have a bitmask of events that should NOT wake the yield
+  int wait_filter;                      // wake filter is actually quite weird.. it serves both as a number of ticks to sleep but also it can have a bitmask of events that should NOT wake the yield
   TaskMessage *message_queue;
   MessageHandler message_handler;
   Entity *entity;
   void *ctx;
   TaskFn entry_point;
-  const char *name;              ///< debug: stringized fn arg from TSK_async/TSK_callback call site
+  const char *name;              // debug: stringized fn arg from TSK_async/TSK_callback call site
 };
 
 typedef struct {
-  int hitpoints;                        ///< HP inhereted from the deploying unit (base, drillrig)
+  int hitpoints;                        // HP inhereted from the deploying unit (base, drillrig)
   int _unused;
 } EntityBuildingContext;
 
 typedef struct {
-  Unit *attacker;                 ///< who fired the projectile
+  Unit *attacker;                 // who fired the projectile
   int attacker_unit_id;
 } EntityProjectileContext;
 
@@ -689,7 +689,7 @@ typedef void (__fastcall *RenderTransform)(void *renderable, RenderNode *node);
 // targets (MobdSprtImage/MapdScrlImage are packed) so image->blitter doesn't
 // assume 4-byte alignment.
 typedef struct {
-  Blitter blitter;                ///< It's actually polymorphic - Scrl and Sprt image objects are assigned to this, both having blitter as the first field so in terms of binary they're compatible
+  Blitter blitter;                // It's actually polymorphic - Scrl and Sprt image objects are assigned to this, both having blitter as the first field so in terms of binary they're compatible
 } __attribute__((packed)) RenderImage;
 
 typedef enum : unsigned int {
@@ -702,7 +702,7 @@ struct RenderViewport {
   RenderViewport *next;
   RenderViewport *prev;
   int flags;
-  int brightness;                       ///< Seemingly uses 8.23 format - brightness factor actually used is (brightness >> 23)
+  int brightness;                       // Seemingly uses 8.23 format - brightness factor actually used is (brightness >> 23)
   int clip_x;
   int clip_y;
   int clip_w;
@@ -712,19 +712,19 @@ struct RenderViewport {
 
 struct RenderCommand {
   RenderCommandFlags flags;
-  RenderImage *image;             ///< It's actually polymorphic - Scrl and Sprt image objects are assigned to this, both having blitter as the first field so in terms of binary they're compatible
+  RenderImage *image;             // It's actually polymorphic - Scrl and Sprt image objects are assigned to this, both having blitter as the first field so in terms of binary they're compatible
   int _render_command_field_8;
   RenderViewport *viewport;
   int x;
   int y;
   int z;
-  unsigned __int8 *palette_override;    ///< use it when flags & RenderCommand_PaletteOverride
+  unsigned __int8 *palette_override;    // use it when flags & RenderCommand_PaletteOverride
 };
 
 typedef enum : unsigned int {
-  RenderNode_PaletteOverride = 0x10000000, ///< use palette override in the render command, see RenderCommandFlags
-  RenderNode_Skip            = 0x40000000,         ///< skip rendering (invisible)
-  RenderNode_Deleted         = 0x80000000,      ///< node pending deletion
+  RenderNode_PaletteOverride = 0x10000000, // use palette override in the render command, see RenderCommandFlags
+  RenderNode_Skip            = 0x40000000,         // skip rendering (invisible)
+  RenderNode_Deleted         = 0x80000000,      // node pending deletion
 } RenderNodeFlags;
 
 struct RenderNode {
@@ -753,7 +753,7 @@ typedef struct {
 
 typedef struct {
   Blitter blitter;
-  int flags;                            ///< &1 = flip horizontally
+  int flags;                            // &1 = flip horizontally
   MobdImageData *bitmap;
 } __attribute__((packed)) MobdSprtImage;
 
@@ -781,11 +781,11 @@ typedef enum : unsigned int {
 } BoxdCollisionType;
 
 typedef enum : unsigned int {
-  Boxd_Impassable = 0,                  ///< Terrain wall — impassable ground, no building on it
-  Boxd_PartiallyOccupied = 1,           ///< Partially occupied — entities present but slots in flux (room to squeeze)
-  Boxd_Clear = 2,                       ///< Free/clear tile — walkable, nobody there (the unit itself is not counted as obstacle)
-  Boxd_FullyOccupied = 3,               ///< Fully occupied — all entity slots stably filled / building
-  Boxd_MovementSucceeded = 4,           ///< Function is really a dual-purpose "try-move-or-classify" — returns classification only when move fails, returns 4 when move succeeds. This makes it a tagged union of success(4) vs failure-reason(0-3)
+  Boxd_Impassable = 0,                  // Terrain wall — impassable ground, no building on it
+  Boxd_PartiallyOccupied = 1,           // Partially occupied — entities present but slots in flux (room to squeeze)
+  Boxd_Clear = 2,                       // Free/clear tile — walkable, nobody there (the unit itself is not counted as obstacle)
+  Boxd_FullyOccupied = 3,               // Fully occupied — all entity slots stably filled / building
+  Boxd_MovementSucceeded = 4,           // Function is really a dual-purpose "try-move-or-classify" — returns classification only when move fails, returns 4 when move succeeds. This makes it a tagged union of success(4) vs failure-reason(0-3)
 } BoxdPathingClassification;
 
 typedef struct {
@@ -816,24 +816,24 @@ typedef struct {
 } __attribute__((packed)) BoxdCollisionShape;
 
 typedef struct {
-  int collides_with_categories;         ///< The collision only proceeds if there is any bit in common between the mover's collides_with_categories (outgoing) and the target shape's category (incoming).
+  int collides_with_categories;         // The collision only proceeds if there is any bit in common between the mover's collides_with_categories (outgoing) and the target shape's category (incoming).
   int category;
-  BOOL (__fastcall *mover_response)(Entity *, Entity *, BoxdCollisionAxis, BoxdAabb *, BoxdAabb *); ///<
-                                                                                                                                  ///< Two handlers enable asymmetric collision pairs where one side is authoritative:
-                                                                                                                                  ///<
-                                                                                                                                  ///< Obstacle-driven (terrain/buildings): Mover has primary=NULL at its root shape. Each obstacle sub-shape defines its own geometry response in secondary. A unit walking into a ramp gets ramp behavior; walking into a wall gets solid push-out — all without the mover knowing what it hit.
-                                                                                                                                  ///<
-                                                                                                                                  ///< Mover-driven (cursor/projectile): The mover has primary set. It doesn't matter what the obstacle's secondary says — the mover overrides. The cursor fires a hover event regardless of what kind of entity it's over.
-                                                                                                                                  ///<
-                                                                                                                                  ///< Hypothetical dual-response (never used): If both were set, the mover's primary would always win. The obstacle never gets a say. You could imagine a scenario where a special unit type overrides terrain collision (e.g., a flying unit with a custom primary that ignores slopes) — the architecture supports it, but no entry uses both slots simultaneously.
-                                                                                                                                  ///<
-                                                                                                                                  ///< The system was clearly designed for a third case — mover-specific override of terrain response. Imagine:
-                                                                                                                                  ///<
-                                                                                                                                  ///< - A hovercraft that slides over ramps instead of climbing (override primary to skip Y clamping)
-                                                                                                                                  ///< - An ethereal unit that passes through walls but still triggers hover events
-                                                                                                                                  ///< - Different weight classes that get pushed differently by the same obstacle
-                                                                                                                                  ///<
-                                                                                                                                  ///< None of these shipped, so every game entity uses index 0 (root) with primary=NULL, deferring entirely to the obstacle's secondary. The cursor is the sole example of a mover-driven response. The two-slot design is architectural foresight that simplified to a one-sided dispatch in practice.
+  BOOL (__fastcall *mover_response)(Entity *, Entity *, BoxdCollisionAxis, BoxdAabb *, BoxdAabb *); //
+                                                                                                                                  // Two handlers enable asymmetric collision pairs where one side is authoritative:
+                                                                                                                                  //
+                                                                                                                                  // Obstacle-driven (terrain/buildings): Mover has primary=NULL at its root shape. Each obstacle sub-shape defines its own geometry response in secondary. A unit walking into a ramp gets ramp behavior; walking into a wall gets solid push-out — all without the mover knowing what it hit.
+                                                                                                                                  //
+                                                                                                                                  // Mover-driven (cursor/projectile): The mover has primary set. It doesn't matter what the obstacle's secondary says — the mover overrides. The cursor fires a hover event regardless of what kind of entity it's over.
+                                                                                                                                  //
+                                                                                                                                  // Hypothetical dual-response (never used): If both were set, the mover's primary would always win. The obstacle never gets a say. You could imagine a scenario where a special unit type overrides terrain collision (e.g., a flying unit with a custom primary that ignores slopes) — the architecture supports it, but no entry uses both slots simultaneously.
+                                                                                                                                  //
+                                                                                                                                  // The system was clearly designed for a third case — mover-specific override of terrain response. Imagine:
+                                                                                                                                  //
+                                                                                                                                  // - A hovercraft that slides over ramps instead of climbing (override primary to skip Y clamping)
+                                                                                                                                  // - An ethereal unit that passes through walls but still triggers hover events
+                                                                                                                                  // - Different weight classes that get pushed differently by the same obstacle
+                                                                                                                                  //
+                                                                                                                                  // None of these shipped, so every game entity uses index 0 (root) with primary=NULL, deferring entirely to the obstacle's secondary. The cursor is the sole example of a mover-driven response. The two-slot design is architectural foresight that simplified to a one-sided dispatch in practice.
   BOOL (__fastcall *obstacle_response)(Entity *, Entity *, BoxdCollisionAxis, BoxdAabb *, BoxdAabb *);
 } BoxdCollisionHandler;
 
@@ -857,21 +857,21 @@ typedef enum : unsigned int {
   TaskType_HoldingPens = 3,
   TaskType_Clanhall = 4,
   TaskType_Outpost = 5,
-  TaskType_MOBD_6_UiSymbols = 6,        ///< Not really a task, only used in CPLC loading as a logic flow control
-  TaskType_Mobd_15_MissionOutcomeModal = 9, ///< Not really a task, only used in CPLC loading as a logic flow control
-  TaskType_FontItalic = 73,             ///< Not really a task, only used in CPLC loading as a logic flow controlNot really a task, only used in CPLC loading as a logic flow control
-  TaskType_KeyboardDispatcher = 75,     ///< 431E60
-  TaskType_IngameMenuController = 77,   ///< 47C028
-  TaskType_SidebarLoop = 78,            ///< 446ED0 Refreshes sidebar buttons on produciton complete, updates cash widget
-  TaskType_MissionOutcomeSequence = 79, ///< 424CE0 Mission outcome sequence (letters appear, sounds plays etc)
+  TaskType_MOBD_6_UiSymbols = 6,        // Not really a task, only used in CPLC loading as a logic flow control
+  TaskType_Mobd_15_MissionOutcomeModal = 9, // Not really a task, only used in CPLC loading as a logic flow control
+  TaskType_FontItalic = 73,             // Not really a task, only used in CPLC loading as a logic flow controlNot really a task, only used in CPLC loading as a logic flow control
+  TaskType_KeyboardDispatcher = 75,     // 431E60
+  TaskType_IngameMenuController = 77,   // 47C028
+  TaskType_SidebarLoop = 78,            // 446ED0 Refreshes sidebar buttons on produciton complete, updates cash widget
+  TaskType_MissionOutcomeSequence = 79, // 424CE0 Mission outcome sequence (letters appear, sounds plays etc)
   TaskType_CursorLoop = 80,
-  TaskType_SidebarTooltip = 81,         ///< 42D030 Sidebar tooltip
+  TaskType_SidebarTooltip = 81,         // 42D030 Sidebar tooltip
   TaskType_Camera = 84,
-  TaskType_NewMissionsSelect = 85,      ///< 442BB0 New Missions menu level selection
-  TaskType_AlchemyHall = 91,            ///< 425F50
-  TaskType_SentinelDroid = 156,         ///< 425F50
-  TaskType_Reinforcements = 122,        ///< 4269B0
-  TaskType_OilPatch = 123,              ///< 425F50
+  TaskType_NewMissionsSelect = 85,      // 442BB0 New Missions menu level selection
+  TaskType_AlchemyHall = 91,            // 425F50
+  TaskType_SentinelDroid = 156,         // 425F50
+  TaskType_Reinforcements = 122,        // 4269B0
+  TaskType_OilPatch = 123,              // 425F50
   TaskType_Max = 196,
   TaskType_Invalid = (unsigned int)-1,
 } TaskType;
@@ -951,10 +951,10 @@ struct Entity {
   int x_speed_limit;
   int y_speed_limit;
   int z_speed_limit;
-  int x_drag;                           ///< x/y/z_drag is friction/drag. It decelerates x_speed toward zero regardless of direction:
-                                        ///<
-                                        ///< If moving right (x_speed > 0): x_speed -= x_drag, clamped to 0
-                                        ///< If moving left (x_speed < 0): x_speed += x_drag, clamped to 0
+  int x_drag;                           // x/y/z_drag is friction/drag. It decelerates x_speed toward zero regardless of direction:
+                                        //
+                                        // If moving right (x_speed > 0): x_speed -= x_drag, clamped to 0
+                                        // If moving left (x_speed < 0): x_speed += x_drag, clamped to 0
   int y_drag;
   int z_drag;
   MobdAnimation *anim;
@@ -962,10 +962,10 @@ struct Entity {
   MobdAnimFrame *anim_current_frame;
   BoxdCollisionShape *shape;
   BoxdCollisionHandler *collider;
-  int anim_speed;                       ///< anim_speed format: 4.28 fixed-point. Top 4 bits = whole frames to advance per tick.
-                                        ///< 0x10000000 (1<<28) = 1 frame/tick. 0x20000000 (2<<28) = 2 frames/tick.
-                                        ///< 0x08000000 = 0.5 frames/tick (half speed). 0 = frozen.
-  int anim_timer;                       ///< remaining ticks on the anim
+  int anim_speed;                       // anim_speed format: 4.28 fixed-point. Top 4 bits = whole frames to advance per tick.
+                                        // 0x10000000 (1<<28) = 1 frame/tick. 0x20000000 (2<<28) = 2 frames/tick.
+                                        // 0x08000000 = 0.5 frames/tick (half speed). 0 = frozen.
+  int anim_timer;                       // remaining ticks on the anim
   RenderNode *rn;
   Task *task;
   CplcSpawnParams *cplc_spawn_params;
@@ -1043,20 +1043,20 @@ typedef enum : unsigned int
   UnitOrder_AttackMove = 8,
   UnitOrder_GuardArea = 9,
   UnitOrder_RepairBayDock = 10,
-  UnitOrder_ReturnToPosition = 11,      ///< after ATTACK: target destroyed/lost during attack → return to home
-                                        ///< after RETREAT: retreat completed → return to home
+  UnitOrder_ReturnToPosition = 11,      // after ATTACK: target destroyed/lost during attack → return to home
+                                        // after RETREAT: retreat completed → return to home
 } UnitOrderType;
 
 typedef enum : unsigned int
 {
-  UnitPathFlags_ApproachingWaypoint = 0x1, ///< close to target, skip rotation; cleared on path reset
-  UnitPathFlags_CwPassThrough = 0x2,    ///< close to target, skip rotation; cleared on path reset
-  UnitPathFlags_CcwPassThrough = 0x4,   ///< allows CCW trace to skip an occupied tile; cleared on path reset
-  UnitPathFlags_CwObstacleScan = 0x8,   ///< scanning CW around obstacle
-  UnitPathFlags_CcwObstacleScan = 0x10, ///< scanning CCW around obstacle
-  UnitPathFlags_ScansDiverged = 0x20,   ///< CW/CCW scans found different tiles
-  UnitPathFlags_PassThroughFriendly = 0x40, ///< set when blocked by slower same-direction units; cleared on nudge
-  UnitPathFlags_AiWanderer = 0x80,      ///< created from prison/bunker/outpost
+  UnitPathFlags_ApproachingWaypoint = 0x1, // close to target, skip rotation; cleared on path reset
+  UnitPathFlags_CwPassThrough = 0x2,    // close to target, skip rotation; cleared on path reset
+  UnitPathFlags_CcwPassThrough = 0x4,   // allows CCW trace to skip an occupied tile; cleared on path reset
+  UnitPathFlags_CwObstacleScan = 0x8,   // scanning CW around obstacle
+  UnitPathFlags_CcwObstacleScan = 0x10, // scanning CCW around obstacle
+  UnitPathFlags_ScansDiverged = 0x20,   // CW/CCW scans found different tiles
+  UnitPathFlags_PassThroughFriendly = 0x40, // set when blocked by slower same-direction units; cleared on nudge
+  UnitPathFlags_AiWanderer = 0x80,      // created from prison/bunker/outpost
   UnitPathFlags_AiSquadlessRoamer = 0x200,
 } UnitPathFlags;
 
@@ -1073,26 +1073,26 @@ typedef enum : unsigned int
 // Scan-phase pathing working state.
 typedef struct
 {
-  int ray_stack;                        ///< Stack index into raycast results
-  int cw_scan_x;                        ///< CW scan probe tile position. Also used directly for movement target when scan finds passable tile. Also used outside scanning as a general "current target tile" — written when finding a blocked unit, and for blocked-unit speed comparison tiles.
+  int ray_stack;                        // Stack index into raycast results
+  int cw_scan_x;                        // CW scan probe tile position. Also used directly for movement target when scan finds passable tile. Also used outside scanning as a general "current target tile" — written when finding a blocked unit, and for blocked-unit speed comparison tiles.
   int cw_scan_y;
   int ccw_scan_x;
   int ccw_scan_y;
-  Direction cw_heading;           ///< Approach direction rotated 90° CW to step around obstacles
-  Direction ccw_heading;          ///< Approach direction rotated 90° CCW to step around obstacles
-  int first_clear_tile_x;               ///< Blocked-tile fallback target. This is the first free tile hit by the ray that has no prior passable tiles — meaning the ray started directly inside an obstacle and this is the first clear tile found. Used as fallback waypoint in raycast results 2 and 5 — replaces order_next_waypoint when primary path data is incomplete.
-                                        ///< Initialized to (0,0) every raycast. Nonzero check = "was a fallback found?"
+  Direction cw_heading;           // Approach direction rotated 90° CW to step around obstacles
+  Direction ccw_heading;          // Approach direction rotated 90° CCW to step around obstacles
+  int first_clear_tile_x;               // Blocked-tile fallback target. This is the first free tile hit by the ray that has no prior passable tiles — meaning the ray started directly inside an obstacle and this is the first clear tile found. Used as fallback waypoint in raycast results 2 and 5 — replaces order_next_waypoint when primary path data is incomplete.
+                                        // Initialized to (0,0) every raycast. Nonzero check = "was a fallback found?"
   int first_clear_tile_y;
   BoxdRaycastResult ray_result;
-  int disperse_timer;                   ///< Temporarily treat partially occupied tiles as impassible to avoid congestion
-  int push_through_timer;               ///< Temporarily treat partially occupied tiles as clear to help the unit push through (e.g a freshly created unit leaving its production building)
+  int disperse_timer;                   // Temporarily treat partially occupied tiles as impassible to avoid congestion
+  int push_through_timer;               // Temporarily treat partially occupied tiles as clear to help the unit push through (e.g a freshly created unit leaving its production building)
 } UnitScanPhaseNav;
 
 typedef enum : unsigned int {
   UnitSize_None = 0,
-  UnitSize_Regular = 128,               ///< 1 tile unit
-  UnitSize_Small = 512,                 ///< sub-tile unit (infantry) - up to 5 in one tile
-  UnitSize_XL = 4096,                   ///< 2x2 tiles unit
+  UnitSize_Regular = 128,               // 1 tile unit
+  UnitSize_Small = 512,                 // sub-tile unit (infantry) - up to 5 in one tile
+  UnitSize_XL = 4096,                   // 2x2 tiles unit
 } UnitSize;
 
 typedef enum : unsigned int {
@@ -1109,7 +1109,7 @@ typedef struct {
   int damage_to_infantry;
   int damage_to_vehicles;
   int damage_to_buildings;
-  int radius;                     ///< 32 for most, 128 for bombers - radius/8 tiles around the impact
+  int radius;                     // 32 for most, 128 for bombers - radius/8 tiles around the impact
   int _projectile_type_field_24;
 } UnitProjectileType;
 
@@ -1117,7 +1117,7 @@ typedef struct {
   MobdId mobd_id;
   void (__cdecl *tick)(Task *task);
   int rotation_speed;
-  int reload_time;                ///< fire -> fire delay -> fire -> fire delay -> ... end of volley -> wait reload_time
+  int reload_time;                // fire -> fire delay -> fire -> fire delay -> ... end of volley -> wait reload_time
   int reload2_time;
   int volley_size;
   ptrdiff_t mobd_lookup_offset_idle;
@@ -1140,24 +1140,24 @@ typedef struct {
   int accuracy;
   BOOL can_crush;
   BOOL is_infantry;
-  ptrdiff_t mobd_lookup_offset_attack;  ///< -1 for turreted units
+  ptrdiff_t mobd_lookup_offset_attack;  // -1 for turreted units
   ptrdiff_t mobd_lookup_offset_move;
   ptrdiff_t mobd_lookup_offset_idle;
-  ptrdiff_t mobd_lookup_offset_4;       ///< damaged_buildings?
+  ptrdiff_t mobd_lookup_offset_4;       // damaged_buildings?
   UnitAttachment *attachment;
   UnitProjectileType *projectile;
-  UnitSize size;                  ///< map tile size
-                                        ///<
-                                        ///< 4096: XL (2x2 tiles)
-                                        ///< autocannon, missile crab, mobile outposts, gort, plasma tank
-                                        ///<
-                                        ///< 512: 1/5th of a tile
-                                        ///< infantry
-                                        ///<
-                                        ///< 128: exactly 1 tile
-                                        ///< vehicles, buildings,
-                                        ///< tech bunker, sentinel droid
-                                        ///< gorn, tree, hut
+  UnitSize size;                  // map tile size
+                                        //
+                                        // 4096: XL (2x2 tiles)
+                                        // autocannon, missile crab, mobile outposts, gort, plasma tank
+                                        //
+                                        // 512: 1/5th of a tile
+                                        // infantry
+                                        //
+                                        // 128: exactly 1 tile
+                                        // vehicles, buildings,
+                                        // tech bunker, sentinel droid
+                                        // gorn, tree, hut
   Race race;
   int ai_threat_weight;
   int ai_strategic_value;
@@ -1214,7 +1214,7 @@ typedef union {
 struct Unit {
   Unit *next;
   Unit *prev;
-  Unit *locked_target;            ///< current active target
+  Unit *locked_target;            // current active target
   Task *task;
   UnitType type;
   int player_num;
@@ -1240,7 +1240,7 @@ struct Unit {
   int hitpoints;
   int experience;
   Veterancy veterancy;
-  fixed hp_regen_accumulator;           ///< classic fixed-point fractional accumulation: accumulator overflows by 256 → gain 1 HP. Each idle tick: accumulator += increment. When high byte changes ((new ^ old) & 0xFFFFFF00), integer HP crossed → hitpoints++
+  fixed hp_regen_accumulator;           // classic fixed-point fractional accumulation: accumulator overflows by 256 → gain 1 HP. Each idle tick: accumulator += increment. When high byte changes ((new ^ old) & 0xFFFFFF00), integer HP crossed → hitpoints++
   fixed hp_regen_rate;
   UnitTilePosition tile_position;
   int map_x;
@@ -1249,17 +1249,17 @@ struct Unit {
   int order_next_waypoint_y;
   int order_starting_x;
   int order_starting_y;
-  int base_anim_speed;                  ///< needs saving because every frame there's a random nudge to every unit's anim so that a group of units don't turn/move inunnatural lockstep
+  int base_anim_speed;                  // needs saving because every frame there's a random nudge to every unit's anim so that a group of units don't turn/move inunnatural lockstep
   int path_next_tile_x;
   int path_next_tile_y;
   int path_next_waypoint_tile_x;
   int path_next_waypoint_tile_y;
-  int path_scan_direction;              ///< Direction flag for wall-following. Set to 1 or 0 depending which clockwise/counterclockwise scan found shorter path. Checked as: not clockwise ? -1 : 1 (scan direction multiplier), and if clockwise → orientation +64, else -64.
-                                        ///< → path_scan_direction (0 = counterclockwise, 1 = clockwise)
-  int path_scan_orientation;            ///< Orientation for pathfinding obstacle avoidance. Set from (orientation ± 64) & 0xE0 — perpendicular to current facing. Used as (path_scan_direction >> 5) to get 3-bit direction index for tile neighbor scanning.
+  int path_scan_direction;              // Direction flag for wall-following. Set to 1 or 0 depending which clockwise/counterclockwise scan found shorter path. Checked as: not clockwise ? -1 : 1 (scan direction multiplier), and if clockwise → orientation +64, else -64.
+                                        // → path_scan_direction (0 = counterclockwise, 1 = clockwise)
+  int path_scan_orientation;            // Orientation for pathfinding obstacle avoidance. Set from (orientation ± 64) & 0xE0 — perpendicular to current facing. Used as (path_scan_direction >> 5) to get 3-bit direction index for tile neighbor scanning.
   UnitOrderType order;
-  Unit *order_target;             ///< Primary target of current order (attack, repair, dock target)
-  Unit *opportunity_target;       ///< Attack-move opportunity target or when enemy approaches an idle unit
+  Unit *order_target;             // Primary target of current order (attack, repair, dock target)
+  Unit *opportunity_target;       // Attack-move opportunity target or when enemy approaches an idle unit
   Unit *escort_target;
   int order_target_id;
   int opportunity_target_id;
@@ -1275,157 +1275,157 @@ struct Unit {
   Unit *last_attacker;
   UnitUnion1 _u1;
   UnitPathFlags path_flags;
-  int multi_purpose_field_1;            ///< 1. Infantry/Vehicle — Obstacle wait countdown (value: 60)
-                                        ///<     Set to 60 when unit hits blocked tile (another unit in way)
-                                        ///<     Decremented each frame in entity_mode_417FC0, entity_mode_4181B0
-                                        ///<     When reaches 0 → give up waiting, repath
-                                        ///<     Meaning: blocked_wait_timer or obstacle_patience_counter
-                                        ///<
-                                        ///< 2. Infantry/Vehicle — Pathfinding step counter (value: 0, incremented)
-                                        ///<     Set to 0 at start of obstacle-scan movement (Infantry.cpp:3193)
-                                        ///<     Incremented each step in entity_mode_417A20 — compared against base_anim_speed
-                                        ///<     Meaning: path_scan_step_count — how many scan steps taken around obstacle
-                                        ///<
-                                        ///< 3. Repair bay — Docking animation countdown (value: 100)
-                                        ///<     Set to 100 when entering/leaving repair bay (Infantry.cpp:4263)
-                                        ///<     Decremented in entity_mode_419180_in_repairbay / entity_mode_418E90_leaving_repair_bay
-                                        ///<     When ≤ 0 → done moving into/out of bay
-                                        ///<     Meaning: repair_bay_move_timer
-                                        ///<
-                                        ///< 4. Repair sprite — Active repair script count (value: 1, incremented)
-                                        ///<     In script_4188F0 (repair coroutine): incremented when repair sprite spawned, decremented on terminate
-                                        ///<     Used as refcount for repair overlay sprites
-                                        ///<     Meaning: repair_sprite_refcount
-                                        ///<
-                                        ///< 5. Aircraft — Bomb run pass counter (value: 2, decremented)
-                                        ///<     Set to 2 for bomber on spawn (Aircraft.cpp:165)
-                                        ///<     Decremented per bombing pass; -1 = return to base, -2 = wait
-                                        ///<     Meaning: bombing_passes_remaining
-                                        ///<
-                                        ///< 6. Tech bunker / Hut — Detection radius (value: 24576)
-                                        ///<     Set to 24576 (= 3 tiles × 8192) on creation (Detenshn.cpp:438)
-                                        ///<     Passed to entity_find_any_entity_in_radius() as distance parameter
-                                        ///<     Then overwritten with player_side of found entity
-                                        ///<     Meaning: detect_radius → then captured_by_side
-                                        ///<
-                                        ///< 7. Scout — Detection radius (value: 76800)
-                                        ///<     Set to 76800 in UNIT_scout_tick (Mission.cpp:936)
-                                        ///<     Same pattern as tech bunker — passed to entity_find_player_entity_in_radius()
-                                        ///<     Meaning: scout_detect_radius
-  int cplc_spawn_param;                 ///< 1. Prison/Bunker — Spawn queue count (value: 0–10)
-                                        ///<     Set to 10 on prison death → spawns units one-by-one
-                                        ///<     Decremented per spawn; when 0 → done spawning
-                                        ///<     Also: index into surv_prison_spawns_table[] / mute_prison_spawns_table[] (counts down from 10)
-                                        ///<     Meaning: spawn_queue_remaining
-                                        ///<
-                                        ///< 2. Tech bunker — Spawn type / loot table index (value: 0–10, 9 = random)
-                                        ///<     Set from level data (param_1C) or 9 (= pick random) in entity_407690_techbunker_spawn
-                                        ///<     Values 0–3: unit from techbunker_spawns_table[], 4: tanker, 5: +5000 resources, 6: +1000 resources
-                                        ///<     Value 10: special — spawn El Presidente then set to 5
-                                        ///<     Meaning: techbunker_spawn_type
-                                        ///<
-                                        ///< 3. Hut — Variant / orientation selector (value: 0–4)
-                                        ///<     Read on creation in UNIT_hut_tick, used in switch to pick anim frame (0/16/32/48/64)
-                                        ///<     Comes from level data. Never modified after init.
-                                        ///<     Meaning: hut_variant
-                                        ///<
-                                        ///< 4. Aircraft — Fire cooldown timer (value: 15, decremented)
-                                        ///<     Set to 15 after firing projectile in aircraft attack mode (Aircraft.cpp:341)
-                                        ///<     Decremented each tick; when 0 → can fire again
-                                        ///<     Also set to 0 when bombing pass ends (Aircraft.cpp:395)
-                                        ///<     Meaning: fire_cooldown
-                                        ///<
-                                        ///< 5. Building/DrillRig/Tanker — "Under attack" voice line cooldown (value: 1000–2000)
-                                        ///<     Set to 1500 (drillrig), 2000 (building), 1000 (tanker) when attacked
-                                        ///<     Decremented in unit handler each tick
-                                        ///<     When 0 → can play "under attack" sound again
-                                        ///<     Prevents voice line spam
-                                        ///<     Meaning: attacked_voice_cooldown
-                                        ///<
-                                        ///< 6. AI Wanderer — Wanderer tracking timer (value: 2, decremented)
-                                        ///<     Set to 2 when unit added to AI wanderer list (EnemyAI.cpp:3968)
-                                        ///<     Decremented in AI tick; odd values trigger distance check; when 0 → remove from wanderer list
-                                        ///<     Meaning: ai_wanderer_ttl
-                                        ///<
-                                        ///< 7. Entity spawn — "Spawned from building" flag (value: from level data or 2)
-                                        ///<     On creation via EntityFactory::Create: set from param_1C or hardcoded 2
-                                        ///<     If nonzero → path_flags |= PATHFIND_SPAWNED_FROM_BUILDING
-                                        ///<     Meaning: spawn_source_param (how many tiles to walk out of building)
-                                        ///<
-                                        ///< 8. Scout — Discovery delay multiplier (value: 60)
-                                        ///<     Set to 60 in UNIT_scout_tick (Mission.cpp:935)
-                                        ///<     Stored into _134 on discovery: _134 = _12C
-                                        ///<     Meaning: scout_discovery_delay
-                                        ///<
-                                        ///< 9. Mission objective — Building alive flag (value: 0 or nonzero)
-                                        ///<     Checked == 0 to mean "building destroyed" in mission win/fail conditions (Mission.cpp:1084)
-                                        ///<     Meaning: is_destroyed (0 = dead, nonzero = alive/cooldown active)
+  int multi_purpose_field_1;            // 1. Infantry/Vehicle — Obstacle wait countdown (value: 60)
+                                        //     Set to 60 when unit hits blocked tile (another unit in way)
+                                        //     Decremented each frame in entity_mode_417FC0, entity_mode_4181B0
+                                        //     When reaches 0 → give up waiting, repath
+                                        //     Meaning: blocked_wait_timer or obstacle_patience_counter
+                                        //
+                                        // 2. Infantry/Vehicle — Pathfinding step counter (value: 0, incremented)
+                                        //     Set to 0 at start of obstacle-scan movement (Infantry.cpp:3193)
+                                        //     Incremented each step in entity_mode_417A20 — compared against base_anim_speed
+                                        //     Meaning: path_scan_step_count — how many scan steps taken around obstacle
+                                        //
+                                        // 3. Repair bay — Docking animation countdown (value: 100)
+                                        //     Set to 100 when entering/leaving repair bay (Infantry.cpp:4263)
+                                        //     Decremented in entity_mode_419180_in_repairbay / entity_mode_418E90_leaving_repair_bay
+                                        //     When ≤ 0 → done moving into/out of bay
+                                        //     Meaning: repair_bay_move_timer
+                                        //
+                                        // 4. Repair sprite — Active repair script count (value: 1, incremented)
+                                        //     In script_4188F0 (repair coroutine): incremented when repair sprite spawned, decremented on terminate
+                                        //     Used as refcount for repair overlay sprites
+                                        //     Meaning: repair_sprite_refcount
+                                        //
+                                        // 5. Aircraft — Bomb run pass counter (value: 2, decremented)
+                                        //     Set to 2 for bomber on spawn (Aircraft.cpp:165)
+                                        //     Decremented per bombing pass; -1 = return to base, -2 = wait
+                                        //     Meaning: bombing_passes_remaining
+                                        //
+                                        // 6. Tech bunker / Hut — Detection radius (value: 24576)
+                                        //     Set to 24576 (= 3 tiles × 8192) on creation (Detenshn.cpp:438)
+                                        //     Passed to entity_find_any_entity_in_radius() as distance parameter
+                                        //     Then overwritten with player_side of found entity
+                                        //     Meaning: detect_radius → then captured_by_side
+                                        //
+                                        // 7. Scout — Detection radius (value: 76800)
+                                        //     Set to 76800 in UNIT_scout_tick (Mission.cpp:936)
+                                        //     Same pattern as tech bunker — passed to entity_find_player_entity_in_radius()
+                                        //     Meaning: scout_detect_radius
+  int cplc_spawn_param;                 // 1. Prison/Bunker — Spawn queue count (value: 0–10)
+                                        //     Set to 10 on prison death → spawns units one-by-one
+                                        //     Decremented per spawn; when 0 → done spawning
+                                        //     Also: index into surv_prison_spawns_table[] / mute_prison_spawns_table[] (counts down from 10)
+                                        //     Meaning: spawn_queue_remaining
+                                        //
+                                        // 2. Tech bunker — Spawn type / loot table index (value: 0–10, 9 = random)
+                                        //     Set from level data (param_1C) or 9 (= pick random) in entity_407690_techbunker_spawn
+                                        //     Values 0–3: unit from techbunker_spawns_table[], 4: tanker, 5: +5000 resources, 6: +1000 resources
+                                        //     Value 10: special — spawn El Presidente then set to 5
+                                        //     Meaning: techbunker_spawn_type
+                                        //
+                                        // 3. Hut — Variant / orientation selector (value: 0–4)
+                                        //     Read on creation in UNIT_hut_tick, used in switch to pick anim frame (0/16/32/48/64)
+                                        //     Comes from level data. Never modified after init.
+                                        //     Meaning: hut_variant
+                                        //
+                                        // 4. Aircraft — Fire cooldown timer (value: 15, decremented)
+                                        //     Set to 15 after firing projectile in aircraft attack mode (Aircraft.cpp:341)
+                                        //     Decremented each tick; when 0 → can fire again
+                                        //     Also set to 0 when bombing pass ends (Aircraft.cpp:395)
+                                        //     Meaning: fire_cooldown
+                                        //
+                                        // 5. Building/DrillRig/Tanker — "Under attack" voice line cooldown (value: 1000–2000)
+                                        //     Set to 1500 (drillrig), 2000 (building), 1000 (tanker) when attacked
+                                        //     Decremented in unit handler each tick
+                                        //     When 0 → can play "under attack" sound again
+                                        //     Prevents voice line spam
+                                        //     Meaning: attacked_voice_cooldown
+                                        //
+                                        // 6. AI Wanderer — Wanderer tracking timer (value: 2, decremented)
+                                        //     Set to 2 when unit added to AI wanderer list (EnemyAI.cpp:3968)
+                                        //     Decremented in AI tick; odd values trigger distance check; when 0 → remove from wanderer list
+                                        //     Meaning: ai_wanderer_ttl
+                                        //
+                                        // 7. Entity spawn — "Spawned from building" flag (value: from level data or 2)
+                                        //     On creation via EntityFactory::Create: set from param_1C or hardcoded 2
+                                        //     If nonzero → path_flags |= PATHFIND_SPAWNED_FROM_BUILDING
+                                        //     Meaning: spawn_source_param (how many tiles to walk out of building)
+                                        //
+                                        // 8. Scout — Discovery delay multiplier (value: 60)
+                                        //     Set to 60 in UNIT_scout_tick (Mission.cpp:935)
+                                        //     Stored into _134 on discovery: _134 = _12C
+                                        //     Meaning: scout_discovery_delay
+                                        //
+                                        // 9. Mission objective — Building alive flag (value: 0 or nonzero)
+                                        //     Checked == 0 to mean "building destroyed" in mission win/fail conditions (Mission.cpp:1084)
+                                        //     Meaning: is_destroyed (0 = dead, nonzero = alive/cooldown active)
   int unit_id;
-  int multi_purpose_field_3;            ///< 1. Mobile Outpost/Clanhall — Saved unit_id before planting (UnitType value)
-                                        ///<     In entity_4279E0_mobile_outpost_clanhall_wagon_plant: _134 = unit_type before swapping to outpost/clanhall unit_type
-                                        ///<     If plant fails → unit_type = _134 to restore original
-                                        ///<     After plant succeeds → unit_type = _134 in entity_427C30 to spawn mobile unit as building
-                                        ///<     Meaning: saved_unit_id
-                                        ///<
-                                        ///< 2. Infantry/Vehicle/General — "New order" immunity timer (value: 600, decremented)
-                                        ///<     Set to 600 whenever unit receives a new order (move, attack, escort, guard area, repair, etc.)
-                                        ///<     Decremented each tick in unit handler
-                                        ///<     While nonzero → blocks opportunity fire (!_134 && can_fire_on_entity check in Infantry.cpp:412)
-                                        ///<     Also blocks entity_mode_405690 tanker convoy idle transition
-                                        ///<     Meaning: order_cooldown — prevents unit from immediately re-engaging opportunity targets after receiving new orders. Gives time to start executing order before getting distracted.
-                                        ///<
-                                        ///< 3. Aircraft — Ammo / shots remaining (value: 1, decremented)
-                                        ///<     Set to 1 when bomber starts attack pass (Aircraft.cpp:396)
-                                        ///<     Checked nonzero → fire projectile + decrement (Aircraft.cpp:311-342)
-                                        ///<     When 0 → stop firing, transition to next mode
-                                        ///<     Meaning: ammo_remaining
-                                        ///<
-                                        ///< 4. Tech bunker — Spawn delay timer (value: ~28800–54000 or 5)
-                                        ///<     In multiplayer: _134 = rand() % 25200 + 28800 (~48–90 second delay at 10fps) (Detenshn.cpp:409)
-                                        ///<     In singleplayer: _134 = 5 (almost instant)
-                                        ///<     Decremented in entity_mode_407950_techbunker_spawn_generic; when ≤ 0 → show turret, enable detection
-                                        ///<     Meaning: techbunker_activation_delay
-                                        ///<
-                                        ///< 5. Scout — Discovery delay countdown (value: copied from _12C, e.g. 60)
-                                        ///<     In entity_mode_425920_scout: _134 = _12C (scout discovery delay)
-                                        ///<     While nonzero → scout stays dormant, waiting to be discovered
-                                        ///<     Meaning: scout_dormant_timer
-                                        ///<
-                                        ///< 6. Loaded unit — Reset to 0 on load
-                                        ///<     When loading saved game entity, if entity has no cplc meta: _134 = 0; veterancy = 0; — initialization for "fresh" spawn from save
-                                        ///<     Meaning: just zeroed out as part of init
-  int path_scan_origin_tile_x;          ///< Sprite tile X at scan start. Exit condition: if scan returns within 1 tile of origin → done
+  int multi_purpose_field_3;            // 1. Mobile Outpost/Clanhall — Saved unit_id before planting (UnitType value)
+                                        //     In entity_4279E0_mobile_outpost_clanhall_wagon_plant: _134 = unit_type before swapping to outpost/clanhall unit_type
+                                        //     If plant fails → unit_type = _134 to restore original
+                                        //     After plant succeeds → unit_type = _134 in entity_427C30 to spawn mobile unit as building
+                                        //     Meaning: saved_unit_id
+                                        //
+                                        // 2. Infantry/Vehicle/General — "New order" immunity timer (value: 600, decremented)
+                                        //     Set to 600 whenever unit receives a new order (move, attack, escort, guard area, repair, etc.)
+                                        //     Decremented each tick in unit handler
+                                        //     While nonzero → blocks opportunity fire (!_134 && can_fire_on_entity check in Infantry.cpp:412)
+                                        //     Also blocks entity_mode_405690 tanker convoy idle transition
+                                        //     Meaning: order_cooldown — prevents unit from immediately re-engaging opportunity targets after receiving new orders. Gives time to start executing order before getting distracted.
+                                        //
+                                        // 3. Aircraft — Ammo / shots remaining (value: 1, decremented)
+                                        //     Set to 1 when bomber starts attack pass (Aircraft.cpp:396)
+                                        //     Checked nonzero → fire projectile + decrement (Aircraft.cpp:311-342)
+                                        //     When 0 → stop firing, transition to next mode
+                                        //     Meaning: ammo_remaining
+                                        //
+                                        // 4. Tech bunker — Spawn delay timer (value: ~28800–54000 or 5)
+                                        //     In multiplayer: _134 = rand() % 25200 + 28800 (~48–90 second delay at 10fps) (Detenshn.cpp:409)
+                                        //     In singleplayer: _134 = 5 (almost instant)
+                                        //     Decremented in entity_mode_407950_techbunker_spawn_generic; when ≤ 0 → show turret, enable detection
+                                        //     Meaning: techbunker_activation_delay
+                                        //
+                                        // 5. Scout — Discovery delay countdown (value: copied from _12C, e.g. 60)
+                                        //     In entity_mode_425920_scout: _134 = _12C (scout discovery delay)
+                                        //     While nonzero → scout stays dormant, waiting to be discovered
+                                        //     Meaning: scout_dormant_timer
+                                        //
+                                        // 6. Loaded unit — Reset to 0 on load
+                                        //     When loading saved game entity, if entity has no cplc meta: _134 = 0; veterancy = 0; — initialization for "fresh" spawn from save
+                                        //     Meaning: just zeroed out as part of init
+  int path_scan_origin_tile_x;          // Sprite tile X at scan start. Exit condition: if scan returns within 1 tile of origin → done
   int path_scan_origin_tile_y;
-  int path_scan_iteration;              ///< Monotonic counter, 0→max. Incremented each loop step. Also used in attack-move scan
-  int path_scan_max_iterations;         ///< = 2 × initial manhattan distance. Failsafe loop limit
-  int path_scan_best_distance;          ///< Lowest manhattan distance to target found so far. Updated when better candidate discovered
-  int path_scan_best_tile_x;            ///< X of best waypoint candidate. On scan completion → copied to path_next_waypoint_tile_x
+  int path_scan_iteration;              // Monotonic counter, 0→max. Incremented each loop step. Also used in attack-move scan
+  int path_scan_max_iterations;         // = 2 × initial manhattan distance. Failsafe loop limit
+  int path_scan_best_distance;          // Lowest manhattan distance to target found so far. Updated when better candidate discovered
+  int path_scan_best_tile_x;            // X of best waypoint candidate. On scan completion → copied to path_next_waypoint_tile_x
   int path_scan_best_tile_y;
-  int path_scan_best_iteration;         ///< Iteration # when best candidate found. After scan: base_anim_speed = this + 1 (sync animation to path length)
-  int path_scan_cur_distance;           ///< Scratch — manhattan distance of current candidate being evaluated. Overwritten each iteration
-  int ray_exit_map_xs[10];              ///< First free tile after each obstacle zone — the actual waypoint target
+  int path_scan_best_iteration;         // Iteration # when best candidate found. After scan: base_anim_speed = this + 1 (sync animation to path length)
+  int path_scan_cur_distance;           // Scratch — manhattan distance of current candidate being evaluated. Overwritten each iteration
+  int ray_exit_map_xs[10];              // First free tile after each obstacle zone — the actual waypoint target
   int ray_exit_map_ys[10];
-  int ray_unit_obstacle_map_xs[10];     ///< Last unit obstacle tile before exit — gives scan approach direction
+  int ray_unit_obstacle_map_xs[10];     // Last unit obstacle tile before exit — gives scan approach direction
   int ray_unit_obstacle_map_ys[10];
-  int ray_terrain_obstacle_xs[10];      ///< Last terrain-wall (class-0) tile — fallback approach for when entity obstacles are unreliable198.
+  int ray_terrain_obstacle_xs[10];      // Last terrain-wall (class-0) tile — fallback approach for when entity obstacles are unreliable198.
   int ray_terrain_obstacle_ys[10];
-  UnitScanPhaseNav scan_pathing;  ///< Pathing works in two phases:
-                                        ///<     1. Raycast phase (0041B970 BOXD_pathing_bresenham_raycast) — Cast Bresenham ray from unit to target. Records obstacle boundaries into ray_exit_* / ray_obstacle_* / ray_terrain_* arrays, indexed by ray_stack.
-                                        ///<     2. Obstacle-scan phase (e.g unit_mode_416060, unit_mode_attack_move) — fine-grained local navigation: for each waypoint, run CW + CCW wall-following scans around the obstacle. Two scan probes advance independently, each tracking its current tile position.
-                                        ///<
-                                        ///< This is actually a union and some of these fields are used for
-                                        ///< different purposes e.g to save x/y speed values depending on context
-                                        ///<
-  Unit *nav_obstacle;             ///< Pointer to blocking/obstructing entity found during pathfinding tile checks.
+  UnitScanPhaseNav scan_pathing;  // Pathing works in two phases:
+                                        //     1. Raycast phase (0041B970 BOXD_pathing_bresenham_raycast) — Cast Bresenham ray from unit to target. Records obstacle boundaries into ray_exit_* / ray_obstacle_* / ray_terrain_* arrays, indexed by ray_stack.
+                                        //     2. Obstacle-scan phase (e.g unit_mode_416060, unit_mode_attack_move) — fine-grained local navigation: for each waypoint, run CW + CCW wall-following scans around the obstacle. Two scan probes advance independently, each tracking its current tile position.
+                                        //
+                                        // This is actually a union and some of these fields are used for
+                                        // different purposes e.g to save x/y speed values depending on context
+                                        //
+  Unit *nav_obstacle;             // Pointer to blocking/obstructing entity found during pathfinding tile checks.
   int nav_obstacle_id;
-  MobdSprtImage overlay_sprt;     ///< Overlay sprite (selection, healthbar)
-  RenderNode *overlay_rn;         ///< Render node that controls ovelay sprite rendering (not sure why the sprite is held separately since render node already owns the image unit->overlay->image = &unit->overlay_sprt)
+  MobdSprtImage overlay_sprt;     // Overlay sprite (selection, healthbar)
+  RenderNode *overlay_rn;         // Render node that controls ovelay sprite rendering (not sure why the sprite is held separately since render node already owns the image unit->overlay->image = &unit->overlay_sprt)
   unsigned __int8 control_groups[8];
   __int16 idle_fidget_timer;
   __int16 last_stuck_tile_x;
   __int16 last_stuck_tile_y;
-  __int16 stuck_timer;                  ///< If unit is stuck in the same tile , stuck timer accumulates and unit sleeps for increasing amount of time waiting to get unstuck
-  __int16 next_order;                   ///< New interrupting order received mid-action: 0=idle, 1=move, 2=attack
+  __int16 stuck_timer;                  // If unit is stuck in the same tile , stuck timer accumulates and unit sleeps for increasing amount of time waiting to get unstuck
+  __int16 next_order;                   // New interrupting order received mid-action: 0=idle, 1=move, 2=attack
   __int16 _unit_field_2A6;
   Unit *next_order_target;
   int next_order_target_id;
@@ -1582,7 +1582,9 @@ struct Coroutine {
   uintptr_t *context;
   void *stack;
   Coroutine *next;
-  const char *name;              ///< debug: stringized fn arg from TSK_async call site
+  const char *name;              // debug: stringized fn arg from TSK_async call site
+  size_t stack_capacity;         // bytes malloc'd for context; for stack profiling
+  size_t stack_highwater;        // deepest stack usage observed (bytes); profiling only
 };
 
 typedef struct {
@@ -1802,8 +1804,8 @@ typedef enum : unsigned __int8 {
 typedef struct {
   GameEventType type;
   char payload[12];
-  bool ready_to_consume;                ///< when produced, is set to true
-                                        ///< when NETZ consumes the event, is set to false
+  bool ready_to_consume;                // when produced, is set to true
+                                        // when NETZ consumes the event, is set to false
 } __attribute__((packed)) GameEvent;
 
 typedef struct GameEventNode GameEventNode;
@@ -1863,17 +1865,17 @@ typedef struct {
   BOOL are_movable_units_selected;
   BOOL are_attacker_units_selected;
   UnitType unit_type_to_voice_response;
-  BOOL is_rmb_scrolling;                ///< RMB drag = scroll camera.
-                                        ///< On release, if total drift was tiny (< 4096 in both axes = less than ~16px), treat it as right-click → deselect all.
-                                        ///< Otherwise it was intentional camera pan, no deselect.
+  BOOL is_rmb_scrolling;                // RMB drag = scroll camera.
+                                        // On release, if total drift was tiny (< 4096 in both axes = less than ~16px), treat it as right-click → deselect all.
+                                        // Otherwise it was intentional camera pan, no deselect.
   int rmb_scrolling_initial_x;
   int rmb_scrolling_initial_y;
   int rmb_scrolling_max_dx;
   int rmb_scrolling_max_dy;
   int rmb_scrolling_dx;
   int rmb_scrolling_dy;
-  Unit *selection_executing_representative; ///< When a mixed group of units selected, determine which unit takes command priority
-                                                  ///< I.e: a lab and a technic is slected at the same time. Clicking on the lab would start reseach rather than repairs because lab takes execution priority
+  Unit *selection_executing_representative; // When a mixed group of units selected, determine which unit takes command priority
+                                                  // I.e: a lab and a technic is slected at the same time. Clicking on the lab would start reseach rather than repairs because lab takes execution priority
   UnitCommandArchetype selection_executing_archetype;
   Entity *cursor_hitbox_tester;
   Entity *cursor_entity;
@@ -1884,15 +1886,15 @@ typedef struct {
   UnitType type;
   int footprint_width;
   int footprint_height;
-  int _building_blueprint_field_C_unused; ///< Values: 25–1000. Never accessed in the code — cost is taken from unit stats table instead. Vestigial data, possibly original dev cost or HP table.
-  int _building_blueprint_field_10_unused; ///< Values: 5 (towers), 10–15 (utility), 25 (production). Pattern = construction duration. Also never accessed in the code.
-  unsigned __int32 collision_mask;       ///< So bit=1 means solid tile, bit=0 means passable tile in building footprint.
-                                         ///<
-                                         ///< Examples:
-                                         ///<     Guard Tower (2×2): 0xC0000000 = 11 00 → top row solid, bottom row passable (entrance)
-                                         ///<     Drill Rig (3×2): 0xE0000000 = 111 000 → top row solid, bottom passable
-                                         ///<     Machine Shop (4×4): 0xFF000000 = 1111 1111 0000 0000 → top 2 rows solid, bottom 2 passable
-                                         ///<     Walls (1×1): 0xFFFFFFFF → all solid (every bit set)
+  int _building_blueprint_field_C_unused; // Values: 25–1000. Never accessed in the code — cost is taken from unit stats table instead. Vestigial data, possibly original dev cost or HP table.
+  int _building_blueprint_field_10_unused; // Values: 5 (towers), 10–15 (utility), 25 (production). Pattern = construction duration. Also never accessed in the code.
+  unsigned __int32 collision_mask;       // So bit=1 means solid tile, bit=0 means passable tile in building footprint.
+                                         //
+                                         // Examples:
+                                         //     Guard Tower (2×2): 0xC0000000 = 11 00 → top row solid, bottom row passable (entrance)
+                                         //     Drill Rig (3×2): 0xE0000000 = 111 000 → top row solid, bottom passable
+                                         //     Machine Shop (4×4): 0xFF000000 = 1111 1111 0000 0000 → top 2 rows solid, bottom 2 passable
+                                         //     Walls (1×1): 0xFFFFFFFF → all solid (every bit set)
 } BuildingBlueprint;
 
 typedef enum : unsigned int {
@@ -1910,7 +1912,7 @@ struct Construct {
   ConstructStage stage;
   int cost;
   int remaining_cost;
-  int cost_per_tick;                    ///< (cost << 8) / (60 * build_time) -- 60 is the global FPS constant (or rather ticks per second)
+  int cost_per_tick;                    // (cost << 8) / (60 * build_time) -- 60 is the global FPS constant (or rather ticks per second)
 };
 
 typedef enum : unsigned int {
@@ -1927,7 +1929,7 @@ typedef struct {
   MouseActions held_actions_mask;
   MouseActions new_actions_mask;
   MouseActions released_actions_mask;
-  Direction direction;            ///< mouse move direction (not used)
+  Direction direction;            // mouse move direction (not used)
   fixed cursor_x;
   fixed cursor_y;
   fixed cursor_dx;
@@ -1973,10 +1975,10 @@ typedef struct {
   KeyboardActions held_actions_mask;
   KeyboardActions new_actions_mask;
   KeyboardActions released_actions_mask;
-  Direction direction;            ///< Current *arrow* key combo direction e.g top and right keys held => Direction_NE
-  KeyboardDosScancodes last_key_scancode; ///< 2-11: CTRL+num
-                                                ///< 30 -> 'A'
-                                                ///< ...
+  Direction direction;            // Current *arrow* key combo direction e.g top and right keys held => Direction_NE
+  KeyboardDosScancodes last_key_scancode; // 2-11: CTRL+num
+                                                // 30 -> 'A'
+                                                // ...
 } KeyboardState;
 
 typedef struct {
@@ -1995,11 +1997,11 @@ struct SidebarButton {
   void (__fastcall *mode_open)(SidebarButton *);
   void (__fastcall *mode_close)(SidebarButton *);
   ptrdiff_t icon_mobd_frame;
-  int base_cost;                        ///< for progress bar calc
+  int base_cost;                        // for progress bar calc
   ProductionSharedState *production_state;
-  void *ctx;                            ///< - RenderString* for cash button
-                                        ///< - SidebarFactoryProductionOption* for unit/vehicle buttons
-                                        ///< - UnitType for building buttons
+  void *ctx;                            // - RenderString* for cash button
+                                        // - SidebarFactoryProductionOption* for unit/vehicle buttons
+                                        // - UnitType for building buttons
   Entity *entity;
 };
 
@@ -2009,13 +2011,13 @@ typedef struct SidebarFactoryProductionOption SidebarFactoryProductionOption;
 struct SidebarFactoryProductionOption {
   SidebarFactoryProductionOption *next;
   SidebarFactoryProductionOption *prev;
-  Unit *factory;                  ///< factory unit ptr
-  UnitType product_type;          ///< type of unit being produced
-  ptrdiff_t icon_mobd_frame;            ///< sidebar icon mobd offset
-  ProductionSharedState state;    ///< passed to factory production as a pointer
+  Unit *factory;                  // factory unit ptr
+  UnitType product_type;          // type of unit being produced
+  ptrdiff_t icon_mobd_frame;            // sidebar icon mobd offset
+  ProductionSharedState state;    // passed to factory production as a pointer
   int base_cost;
-  int production_time;                  ///< unit_stats.production_time x 60; bandwidth = (cost << 8) / production_time_x60
-  int key;                              ///< Grouping key : slot_index + 16 * PRODUCTION_GROUP_ID. Used to match new jobs to existing factory. -1 = ungrouped (AI/building construction)14.
+  int production_time;                  // unit_stats.production_time x 60; bandwidth = (cost << 8) / production_time_x60
+  int key;                              // Grouping key : slot_index + 16 * PRODUCTION_GROUP_ID. Used to match new jobs to existing factory. -1 = ungrouped (AI/building construction)14.
 };
 
 typedef struct FactoryProdJob FactoryProdJob;
@@ -2025,15 +2027,15 @@ typedef struct FactoryProdJob FactoryProdJob;
 struct FactoryProdJob {
   FactoryProdJob *next;
   FactoryProdJob *prev;
-  int base_bandwidth;                   ///< max amount of money factory can spend per tick
-  int effective_bandwidth;              ///< effective amount of money this production receives based on number of other concurrent productions
-  int base_cost;                        ///< base total cost of the unit
-  int *remaining_cost;                  ///< ptr to the remaining cost (managed by sidebar); reset back to base_cost if multiple units in the queue (sidebar)
-  int *remaining_cash;                  ///< ptr to player's cash (managed separately)
-  int accumulator;                      ///< each tick: += effective_bandwith;  256 bandwidth spent = $1 towards production
-  int *num_orders;                      ///< num of the same unit ordered in sidebar; when production finishes, if num_orders > 1 - remaining_cost resets and production continues (actual value stored and managed in sidebar)
-  SidebarFactoryProductionOption *notification_arg; ///< Param to send with Unit Ready msg. For sidebar units = ProductionOption *. For AI/buildings -> NULL
-  Task *notification_task;        ///< Task that receives Unit Ready msg when cost hits 0. For sidebar = g_game_update_loop_task. For AI = entity script or 0
+  int base_bandwidth;                   // max amount of money factory can spend per tick
+  int effective_bandwidth;              // effective amount of money this production receives based on number of other concurrent productions
+  int base_cost;                        // base total cost of the unit
+  int *remaining_cost;                  // ptr to the remaining cost (managed by sidebar); reset back to base_cost if multiple units in the queue (sidebar)
+  int *remaining_cash;                  // ptr to player's cash (managed separately)
+  int accumulator;                      // each tick: += effective_bandwith;  256 bandwidth spent = $1 towards production
+  int *num_orders;                      // num of the same unit ordered in sidebar; when production finishes, if num_orders > 1 - remaining_cost resets and production continues (actual value stored and managed in sidebar)
+  SidebarFactoryProductionOption *notification_arg; // Param to send with Unit Ready msg. For sidebar units = ProductionOption *. For AI/buildings -> NULL
+  Task *notification_task;        // Task that receives Unit Ready msg when cost hits 0. For sidebar = g_game_update_loop_task. For AI = entity script or 0
 };
 
 typedef enum : unsigned int {
@@ -2088,7 +2090,7 @@ struct SidebarFactoryProduction {
   int _sidebar_factory_production_field_38;
   int _sidebar_factory_production_field_3C;
   int key;
-  int factory_header_color_idx;         ///< multiple factories of the same type have differently coloured header bars
+  int factory_header_color_idx;         // multiple factories of the same type have differently coloured header bars
   Entity *icon_entity;
 };
 
@@ -2111,23 +2113,23 @@ struct FactoryProd {
   int _factory_production_field_30_unused;
   int _factory_production_field_34_unused;
   int _factory_production_field_38_unused;
-  int key;                              ///< Grouping key : slot_index + 16 * PRODUCTION_GROUP_ID. Used to match new jobs to existing factory. -1 = ungrouped (AI/building construction)
-  int num_active_productions;           ///< the length of the production list (production nodes get recycled on production complete)
+  int key;                              // Grouping key : slot_index + 16 * PRODUCTION_GROUP_ID. Used to match new jobs to existing factory. -1 = ungrouped (AI/building construction)
+  int num_active_productions;           // the length of the production list (production nodes get recycled on production complete)
 };
 
 typedef struct {
-  void *ctx;                            ///< drillrig: OilPatch*
-                                        ///< lab: Task* for the research task
+  void *ctx;                            // drillrig: OilPatch*
+                                        // lab: Task* for the research task
   int upgrade_level;
   int upgrade_remaining_cost;
   __int16 same_building_count;
-  __int16 garrison_strength;            ///< Init from params (typically 5). Friendly unit enters → increment (max 5). Enemy saboteur → decrement. Zero = building captured/destroyed.
+  __int16 garrison_strength;            // Init from params (typically 5). Friendly unit enters → increment (max 5). Enemy saboteur → decrement. Zero = building captured/destroyed.
   SidebarFactoryProduction *prod;
   MobdImageData *status_bar;
   Unit *docked_tanker;
   int docked_tanker_unit_id;
-  Entity *repair_anim;                  ///< wrench
-  int num_active_repairs;               ///< e.g 2 technicians enter the building
+  Entity *repair_anim;                  // wrench
+  int num_active_repairs;               // e.g 2 technicians enter the building
 } BuildingState;
 
 typedef struct Bomber Bomber;
@@ -2189,7 +2191,7 @@ typedef struct UpgradeProcess UpgradeProcess;
 struct UpgradeProcess {
   void (__fastcall *mode)(UpgradeProcess *);
   int pulse_cooldown;
-  int stage;                            ///< 1 to 6
+  int stage;                            // 1 to 6
   BOOL cancelled;
   Unit *building;
   int _upgrade_state_field_14;
@@ -2554,9 +2556,9 @@ struct AiController {
   int construction_state;
   int construction_base_cost;
   int construction_remaining_cost;
-  int construction_countdown;           ///< small 10 ticks stagger before placing a new building
+  int construction_countdown;           // small 10 ticks stagger before placing a new building
   int construction_cost_per_tick;
-  Task *construction_task;        ///< current building under construction
+  Task *construction_task;        // current building under construction
   int airstrike_interval;
   int airstrike_count;
 };
@@ -2575,21 +2577,49 @@ typedef struct {
 } AiSquadNodeSaveStruct;
 
 typedef struct {
-  int ai_task_handler_id;
-  int num_unit_nodes;
-  int num_wanderer_nodes;
-  int _ai_players_save_struct_C;
-  int _ai_players_save_struct_10;
-  int _ai_players_save_struct_14;
-  int _ai_players_save_struct_18;
-  int _ai_players_save_struct_1C;
-  int _ai_players_save_struct_20;
-  int _ai_players_save_struct_24;
-  int _ai_players_save_struct_28;
-  int _ai_players_save_struct_2C;
-  int _ai_players_save_struct_30;
-  int _ai_players_save_struct_34;
-  int _ai_players_save_struct_38;
+  __int32 unit_id;
+  __int32 remaining_cost;
+  __int32 base_cost;
+  __int32 cost_per_tick;
+  __int32 unit_type;
+} AiBuildNodeSaveStruct;
+_Static_assert(sizeof(AiBuildNodeSaveStruct) == 20, "AiBuildNodeSaveStruct must be 20 bytes");
+
+typedef struct {
+  __int32 unit_id;               // 0
+  AiSquadNodeSaveStruct squad;   // 4  (40 bytes)
+} AiUnitNodeSaveStruct;
+_Static_assert(sizeof(AiUnitNodeSaveStruct) == 44, "AiUnitNodeSaveStruct must be 44 bytes");
+
+typedef struct {
+  __int32 unit_id;                    // 0
+  AiSquadNodeSaveStruct guard_squad;  // 4  (40 bytes)
+  __int32 nearest_powerplant_unit_id; // 44 (-1 if none)
+  __int32 local_threat;               // 48
+  __int32 num_tankers;                // 52
+  __int32 desired_tanker_count;       // 56
+} AiDrillrigNodeSaveStruct;
+_Static_assert(sizeof(AiDrillrigNodeSaveStruct) == 60, "AiDrillrigNodeSaveStruct must be 60 bytes");
+
+typedef struct {
+  int ai_task_handler_id;           // 0x00
+  int num_unit_nodes;               // 0x04
+  int num_wanderer_nodes;           // 0x08 (new_wanderer_head)
+  int num_active_wanderers;         // 0x0C
+  int num_unassigned_attackers;     // 0x10
+  int num_convoy_escorts;           // 0x14
+  int num_build_nodes;              // 0x18
+  int num_drillrig_nodes;           // 0x1C
+  int num_tanker_nodes;             // 0x20
+  int num_powerplant_nodes;         // 0x24
+  int num_enemy_nodes;              // 0x28
+  int num_attack_squads;            // 0x2C
+  int num_patrol_squads;            // 0x30
+  int num_retreat_squads;           // 0x34
+  // 0x38..0x5F: the staging squad's AiSquadNodeSaveStruct, packed in-place via
+  // SAVE_pack_squad_node(&num_staging_attackers). num_staging_attackers is that
+  // struct's first int (its attacker count); the rest stay unnamed here.
+  int num_staging_attackers;        // 0x38
   int _ai_players_save_struct_3C;
   int _ai_players_save_struct_40;
   int _ai_players_save_struct_44;
@@ -2599,53 +2629,42 @@ typedef struct {
   int _ai_players_save_struct_54;
   int _ai_players_save_struct_58;
   int _ai_players_save_struct_5C;
-  int _ai_players_save_struct_60;
-  int _ai_players_save_struct_64;
-  int _ai_players_save_struct_68;
-  int _ai_players_save_struct_6C;
-  int _ai_players_save_struct_70;
-  int _ai_players_save_struct_74;
-  int _ai_players_save_struct_78;
-  int _ai_players_save_struct_7C;
-  int _ai_players_save_struct_80;
-  int _ai_players_save_struct_84;
-  int _ai_players_save_struct_88;
-  int _ai_players_save_struct_8C;
-  int _ai_players_save_struct_90;
-  int _ai_players_save_struct_94;
-  int _ai_players_save_struct_98;
-  int _ai_players_save_struct_9C;
-  int player_num;
-  int _ai_players_save_struct_A4;
-  int _ai_players_save_struct_A8;
-  int _ai_players_save_struct_AC;
-  int _ai_players_save_struct_B0;
-  int _ai_players_save_struct_B4;
-  int _ai_players_save_struct_B8;
-  int _ai_players_save_struct_BC;
-  int _ai_players_save_struct_C0;
-  int _ai_players_save_struct_C4;
-  int _ai_players_save_struct_C8;
-  int _ai_players_save_struct_CC;
-  int _ai_players_save_struct_D0;
-  int _ai_players_save_struct_D4;
-  int last_unit_produced;
-  int _ai_players_save_struct_DC;
-  int _ai_players_save_struct_E0;
-  int _ai_players_save_struct_E4;
-  int _ai_players_save_struct_E8;
-  int _ai_players_save_struct_EC;
-  int _ai_players_save_struct_F0;
-  int _ai_players_save_struct_F4;
-  int _ai_players_save_struct_F8;
-  int _ai_players_save_struct_FC;
-  int _ai_players_save_struct_100;
-  int _ai_players_save_struct_104;
-  int _ai_players_save_struct_108;
-  int _ai_players_save_struct_10C;
-  int _ai_players_save_struct_110;
-  int _ai_players_save_struct_114;
-  int _ai_players_save_struct_118;
+  int base_area_min_x;              // 0x60
+  int base_area_min_y;              // 0x64
+  int base_area_max_x;              // 0x68
+  int base_area_max_y;              // 0x6C
+  int num_build_orders;             // 0x70
+  int build_order_current_index;    // 0x74 (1-based; 0 = none)
+  int rally_x;                      // 0x78
+  int rally_y;                      // 0x7C
+  Vec2 patrol_waypoints[4];         // 0x80 (32 bytes)
+  int player_num;                   // 0xA0
+  int player_race;                  // 0xA4
+  int attacker_count;               // 0xA8
+  int max_units;                    // 0xAC
+  int squad_threshold;              // 0xB0
+  int attack_confidence;            // 0xB4
+  int base_threat;                  // 0xB8
+  int max_squad_threat;             // 0xBC
+  int best_patrol_waypoint_idx;     // 0xC0
+  int patrol_threat[5];             // 0xC4 (20 bytes)
+  int last_unit_produced;           // 0xD8
+  int last_unit_produced_factory;   // 0xDC
+  int tanker_production_in_progress; // 0xE0
+  int preferred_drillrig_index;     // 0xE4
+  int num_building_replacements;    // 0xE8
+  int num_drillrig_replacements;    // 0xEC
+  int construction_state;           // 0xF0
+  int construction_base_cost;       // 0xF4
+  int construction_remaining_cost;  // 0xF8
+  int construction_countdown;       // 0xFC
+  int construction_task_unit_id;    // 0x100
+  int construction_cost_per_tick;   // 0x104
+  int construction_task_unit_type;  // 0x108
+  int construction_task_x;          // 0x10C
+  int construction_task_y;          // 0x110
+  int airstrike_interval;           // 0x114
+  int airstrike_count;              // 0x118
   int unit_free_head_unit_id;
   AiSquadNodeSaveStruct squad_node;
   int attacker_free_head_unit_id;
@@ -2676,12 +2695,21 @@ typedef struct {
   int _ai_players_save_struct_1D8;
   int _ai_players_save_struct_1DC;
 } AiPlayersSaveStruct;
+_Static_assert(offsetof(AiPlayersSaveStruct, num_enemy_nodes) == 0x28, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, num_staging_attackers) == 0x38, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, base_area_min_x) == 0x60, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, patrol_waypoints) == 0x80, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, player_num) == 0xA0, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, patrol_threat) == 0xC4, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, construction_task_unit_id) == 0x100, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, airstrike_count) == 0x118, "AiPlayersSaveStruct layout");
+_Static_assert(offsetof(AiPlayersSaveStruct, unit_free_head_unit_id) == 0x11C, "AiPlayersSaveStruct fixed header must be 0x11C bytes");
 
 typedef int CreatureId;
 
 typedef struct {
-  CreatureId creature_id;   ///< actually offset into scripts fn table
-                                  ///< task type, but referenced as "Creature ID" in EnemyAI
+  CreatureId creature_id;   // actually offset into scripts fn table
+                                  // task type, but referenced as "Creature ID" in EnemyAI
   UnitType unit_type;
 } CreatureIdToUnitId;
 
@@ -2926,7 +2954,7 @@ typedef enum : unsigned __int16
 typedef struct {
   int size;
   MovieFlags flags;
-  __int16 x;                            ///< partial update position
+  __int16 x;                            // partial update position
   __int16 y;
   __int16 _movie_frame_A;
   char _movie_frame_C[8];
@@ -2979,7 +3007,7 @@ typedef struct {
   MovieFlags frame_flags;
   int16_t active_decode_buffer;
   FILE *file;
-  size_t first_frame_offset;            ///< for rewinding
+  size_t first_frame_offset;            // for rewinding
   void *decode_buffers[2];
   int block_offset_lut[256];
   MovieFrame frame;
@@ -3098,8 +3126,8 @@ typedef struct {
   char __netz_player_field_F;
   int slot;
   BOOL event_received_this_tick;
-  BOOL synced;                          ///< true: player has received & ack'd the latest roster
-                                        ///< false: sent roster but no ack yet
+  BOOL synced;                          // true: player has received & ack'd the latest roster
+                                        // false: sent roster but no ack yet
 } NetzPlayer;
 
 typedef struct ReinforcementsState ReinforcementsState;
@@ -3149,7 +3177,7 @@ typedef struct {
 typedef enum : unsigned int
 {
   RaycastPhase_ScanningClear  = 0,
-  RaycastPhase_InsideObstacle = 0,
+  RaycastPhase_InsideObstacle = 1,
 } BoxdRaycastPhase;
 
 typedef enum : unsigned int
@@ -3170,21 +3198,12 @@ typedef struct {
   int32_t destinations[20];
 } __attribute__((may_alias)) TankerSaveStruct;
 
-// Save trailer for TankerConvoy units (the region right after the base
-// UnitSaveStruct). Original packed/unpacked this by aliasing UnitSaveStruct's
-// own field names via raw byte offset; this names it properly.
 typedef struct {
   int32_t x;
   int32_t y;
   int32_t checkpoint;
 } __attribute__((may_alias)) TankerConvoySaveStruct;
 
-// Save trailer for all building unit types. The upgrade_* extension is only
-// present for ResearchLab / AlchemyHall whose upgrade_remaining_cost > 0.
-// upgrade_progress_bar is an embedded entity; the upgrade task's scheduler
-// fields are aliased over the base struct's `turret` entity region. The
-// _Static_asserts below pin every non-trivial field to the exact UnitSaveStruct
-// byte offset the original pack/unpack aliasing relied on.
 typedef struct {
   int32_t oil_patch_index;                // drillrig: index of its oil patch (-1 = none)
   int32_t upgrade_level;
@@ -3344,29 +3363,29 @@ typedef enum {
 
 typedef enum : uint8_t
 {
-  NETZ_PKT_EVENT_BROADCAST = 51,        ///< Host distributes collected game events from all players
-  NETZ_PKT_CLIENT_EVENT = 52,           ///< Client submits it's game event for the current lockstep tick (13 bytes if event, 1 if none)
-  NETZ_PKT_CLIENT_LOCKSTEP_FINISHED = 59, ///< Client is ready for the next lockstep tick
-  NETZ_PKT_GAME_START_LOBBY_STATE_BROADCAST = 50, ///< Full lobby state broadcast (player count, slot, names, palettes, factions) and game start
-  NETZ_PKT_CLIENT_ACK = 55,             ///< Generic client ACK
-  NETZ_PKT_CLIENT_KICKED_ACK = 56,      ///< Player is kicked notification
-  NETZ_PKT_LOBBY_SYNC = 57,             ///< Same as lobby state broadcast but on update
-  NETZ_PKT_GAME_OVER_BROADCAST = 62,    ///< Host surrendered / terminated
-  NETZ_PKT_PLAYER_REMOVED_BROADCAST = 63, ///< Notify remaining players a player slot was removed
-  NETZ_PKT_GAME_SETTINGS_SYNC = 64,     ///< Game settings update/sync (tech level, map etc)
-  NETZ_PKT_LOBBY_PLAYERS_BROADCAST = 65, ///< Player list (names, palettes, factions) refresh
+  NETZ_PKT_EVENT_BROADCAST = 51,        // Host distributes collected game events from all players
+  NETZ_PKT_CLIENT_EVENT = 52,           // Client submits it's game event for the current lockstep tick (13 bytes if event, 1 if none)
+  NETZ_PKT_CLIENT_LOCKSTEP_FINISHED = 59, // Client is ready for the next lockstep tick
+  NETZ_PKT_GAME_START_LOBBY_STATE_BROADCAST = 50, // Full lobby state broadcast (player count, slot, names, palettes, factions) and game start
+  NETZ_PKT_CLIENT_ACK = 55,             // Generic client ACK
+  NETZ_PKT_CLIENT_KICKED_ACK = 56,      // Player is kicked notification
+  NETZ_PKT_LOBBY_SYNC = 57,             // Same as lobby state broadcast but on update
+  NETZ_PKT_GAME_OVER_BROADCAST = 62,    // Host surrendered / terminated
+  NETZ_PKT_PLAYER_REMOVED_BROADCAST = 63, // Notify remaining players a player slot was removed
+  NETZ_PKT_GAME_SETTINGS_SYNC = 64,     // Game settings update/sync (tech level, map etc)
+  NETZ_PKT_LOBBY_PLAYERS_BROADCAST = 65, // Player list (names, palettes, factions) refresh
   NETZ_PKT_LOBBY_PLAYER_JOINED = 66,
-  NETZ_PKT_LOBBY_GAME_CANCELLED_BROADCAST = 67, ///< Host cancelled game / closed session
-  NETZ_PKT_LOBBY_RESOLVE_PALETTE_CONFLICT = 69, ///< Find another player with the same palette, reassign
-  NETZ_PKT_LOBBY_READY_TO_START = 70,   ///< Client is ready to start
-  NETZ_PKT_LOBBY_START_WITH_SEED = 71,  ///< Game is starting woth g_rand_seed_sync. Client ACK with 55
+  NETZ_PKT_LOBBY_GAME_CANCELLED_BROADCAST = 67, // Host cancelled game / closed session
+  NETZ_PKT_LOBBY_RESOLVE_PALETTE_CONFLICT = 69, // Find another player with the same palette, reassign
+  NETZ_PKT_LOBBY_READY_TO_START = 70,   // Client is ready to start
+  NETZ_PKT_LOBBY_START_WITH_SEED = 71,  // Game is starting woth g_rand_seed_sync. Client ACK with 55
   NETZ_PKT_JOIN_LOCAL = 72,
-  NETZ_PKT_CHAT = 73,                   ///< Sent to host, host relayes to other players
+  NETZ_PKT_CHAT = 73,                   // Sent to host, host relayes to other players
   NETZ_PKT_74 = 74,
   NETZ_PKT_75 = 75,
   NETZ_PKT_GAME_OVER_BROADCAST_2 = 61,
-  NETZ_PKT_JOIN_REQ = 62,               ///< Player sends a join request along with own NetzPlayer data
-  NETZ_PKT_REJECT = 76,                 ///< Host rejects connection
+  NETZ_PKT_JOIN_REQ = 62,               // Player sends a join request along with own NetzPlayer data
+  NETZ_PKT_REJECT = 76,                 // Host rejects connection
   NETZ_PKT_JOIN_REQ_WITH_VERSION = 31,
   NETZ_PKT_BROADCAST_PLAYER_KICKED = 68,
   NETZ_PKT_1E = 30,
@@ -3424,7 +3443,7 @@ typedef struct {
 typedef struct {
   uint32_t num_players;
   uint32_t slot;
-  NetzRosterPlayer players[6];    ///< sender's slot or recipient's assigned slot
+  NetzRosterPlayer players[6];    // sender's slot or recipient's assigned slot
 } NetzRoster;
 
 typedef enum : int

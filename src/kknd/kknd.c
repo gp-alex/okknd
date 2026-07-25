@@ -2,12 +2,12 @@
 
 #define NUM_SCRIPTS 196
 
-BOOL UNIT_bomber_init();
-void __cdecl mode_null(Task *);
+bool UNIT_bomber_init();
+void __cdecl UNIT_fighter_tick(Task *);
 void UNIT_bomber_cleanup();
 void __cdecl UNIT_beast_enclosure_tick(Task *task);
 void __fastcall MSG_blacksmith_upgrades(Task *receiver, Task *sender, TaskMessageType message, void *payload);
-void __fastcall UNIT_bomber_add(Unit *unit);
+void UNIT_bomber_add(Unit *unit);
 void __cdecl TURRET_cosmetic_tick(Task *task);
 void __fastcall TURRET_mode_bomber_follow_orientation(Turret *turret);
 void __fastcall TURRET_mode_bomber_init(Turret *turret);
@@ -15,7 +15,7 @@ void __fastcall TURRET_bomber_init(Unit *unit);
 void __fastcall MSG_bomber(Task *receiver, Task *sender, TaskMessageType message, void *payload);
 void __cdecl UNIT_bomber_tick(Task *task);
 void __fastcall UNIT_mode_bomber_crash_landing(Unit *unit);
-void __fastcall UNIT_bomber_initiate_end_sequence(Unit *unit, BOOL crash_or_depart);
+void UNIT_bomber_initiate_end_sequence(Unit *unit, bool should_crash);
 void __fastcall UNIT_mode_bomber_cleanup(Unit *unit);
 void __fastcall UNIT_mode_bomber_on_death(Unit *unit);
 void __fastcall UNIT_mode_bomber_depart(Unit *unit);
@@ -53,10 +53,18 @@ void __fastcall TSK_coroutine_remove(Coroutine *coroutine);
 // debug: guard word at the low end of a coroutine's malloc'd stack buffer; if
 // it's ever clobbered, that coroutine's stack overflowed downward into the heap
 #define TSK_COROUTINE_STACK_CANARY 0xC0FFEEEEu
+// Stack profiler: paint the coroutine stack at create, scan surviving paint in
+// TSK_coroutine_check_canary to report each task's high-water mark. Use to size
+// coroutine stacks to real need + margin instead of guessing. Set 0 to disable.
+#define COROUTINE_STACK_PROFILE 0
+#define COROUTINE_STACK_PAINT   0xCDCDCDCDu
 void TSK_coroutine_check_canary(Coroutine *co, const char *where);
 void __fastcall TSK_execute_sync(Task *task);
 void TSK_coroutine_cleanup();
 void __cdecl TSK_execute_async(Coroutine *coroutine);
+void COROUTINE_STACK_BORROW_ASM(void);
+void COROUTINE_STACK_RETURN_ASM(void);
+void coro_trace_dump(const char *why);
 void __fastcall UNIT_mode_building_under_construction(Unit *unit);
 BOOL __fastcall UNIT_building_is_under_construction(Unit *unit);
 void __fastcall TURRET_buiding_init(Unit *unit);
@@ -65,6 +73,7 @@ void __fastcall MISSION_adjust_unit_hp(Unit *unit);
 void __fastcall UNIT_building_init(Unit *unit, __int16 garrison_strength, UnitMode mode_turn_return, UnitMode mode_return);
 void __fastcall UNIT_sabotage(Unit *unit, Unit *saboteur, UnitMode on_death);
 void __fastcall UNIT_destroy(Unit *unit, UnitMode next_mode);
+void __fastcall UNIT_on_destroy(Unit *unit, UnitMode next_mode);
 void __fastcall UNIT_apply_damage_ex(Unit *unit, Entity *attacker, UnitMode on_death);
 void __fastcall MSG_building_generic(Task *receiver, Task *sender, TaskMessageType message, void *payload);
 void __cdecl SCHRAP_explosion_small_random_task(Task *task);
@@ -448,7 +457,7 @@ void *__fastcall SAVE_pack_prod(size_t *out_size);
 BOOL __fastcall SAVE_unpack_prod(int *data);
 void __fastcall SAVE_pack_squad_node(AiSquadNodeSaveStruct *data, AiSquadNode *node);
 void __fastcall SAVE_unpack_squad_node(AiController *ai, const AiSquadNodeSaveStruct *data, AiSquadNode *node);
-AiSquadNodeSaveStruct *__fastcall SAVE_pack_ai_players(void *data);
+void *__fastcall SAVE_pack_ai_players(void *data);
 BOOL __fastcall SAVE_unpack_ai_players(const AiPlayersSaveStruct *data);
 unsigned __int8 *__fastcall SAVE_pack_map_info(int *out_total_tiles);
 MetaSaveStruct *__fastcall SAVE_pack_meta(size_t *out_data_size);
@@ -556,7 +565,7 @@ void __fastcall GAME_add_cash(int *cash, int amount);
 void PROD_cleanup();
 void __cdecl PROD_tick(Task *task);
 BOOL INPUT_mouse_init();
-BOOL __fastcall INPUT_set_mouse_pos(__int16 x, __int16 y);
+bool INPUT_set_mouse_pos(int x, int y);
 BOOL __fastcall INPUT_set_scroll_speed(__int16 speed);
 BOOL __fastcall INPUT_get_mouse_state(MouseState *state);
 BOOL INPUT_mouse_update();
@@ -766,7 +775,7 @@ void __fastcall UPG_mode_finalize(UpgradeProcess *upg);
 void __fastcall UPG_mode_update_anim(UpgradeProcess *upg);
 void __fastcall UPG_mode_idle(UpgradeProcess *upg);
 void __cdecl UPG_tick(Task *task);
-void __fastcall MSG_research_lab(Task *receiver, Task *sender, TaskMessageType message, Unit *payload);
+void __fastcall MSG_research_lab(Task *receiver, Task *sender, TaskMessageType message, void *payload);
 void __cdecl UNIT_research_lab_tick(Task *task);
 void __fastcall UNIT_mode_research_lab_on_complete(Unit *unit);
 void __fastcall UNIT_mode_research_lab_on_death(Unit *unit);
@@ -803,7 +812,7 @@ int __fastcall SOUND_play_async(const char *filename, BOOL looping, int volume, 
 void __cdecl SOUND_thread(SoundStream *snd);
 void __fastcall SOUND_stop(int sound_id);
 void SOUND_unload_bank();
-void SOUND_tick();
+void SOUND_tick(void);
 void SOUND_cleanup();
 BOOL __fastcall SOUND_wav_parse_file(File *file, WAVEFORMATEX *a2, unsigned int *a3);
 BOOL __fastcall SOUND_wav_parse_in_memory(void *bank, WAVEFORMATEX **out_format, void **out_pcm_data, unsigned int *out_num_bytes);
@@ -909,7 +918,9 @@ void UI_widgets_cleanup();
 void __fastcall UI_widgets_destroy_all(Task *task);
 void UI_widgets_sweep();
 void __fastcall UI_switch_screen(Task *task, MenuId menu);
-void __cdecl TKS_terminate_with_entity(Task *task);
+void TSK_terminate_with_entity(Task *tsk);
+void TSK_terminate_and_entity(Task *tsk, Entity *e);
+void TSK_terminate_with_entity_and_ctx(Task *tsk);
 int __fastcall UISTR_find_newline(const char *text);
 void __fastcall UISTR_append_text(UiStr *str, const char *text, GlyphDesc **font_remap_table);
 int __fastcall UI_get_letter_x(UiStr *a1, int col, int row);
@@ -946,6 +957,8 @@ TaskEvents __cdecl TSK_yield(Task *task, TaskWaitFlags wait_flags, int sleep_int
 void *__fastcall TSK_alloc(Task *task, size_t size);
 void __fastcall TSK_dealloc(Task *task, void *mem);
 void __fastcall TSK_schedule_self_destruct(Task *task);
+void __fastcall TURRET_cleanup_kill(Task *parent_task, Turret *turret);
+void __fastcall TURRET_cleanup_self_destruct(Turret *turret);
 void TSK_run();
 void TSK_cleanup();
 void TSK_coroutine_starter();
@@ -1002,7 +1015,7 @@ void __fastcall UNIT_mode_tower_complete(Unit *unit);
 void __fastcall UNIT_mode_tower_advance_construction(Unit *unit);
 void __fastcall UNIT_mode_tower_on_death(Unit *unit);
 void __fastcall UNIT_mode_tower_finalize(Unit *unit);
-void __fastcall MSG_tower(Task *receiver, Task *sender, TaskMessageType message, Unit *payload);
+void __fastcall MSG_tower(Task *receiver, Task *sender, TaskMessageType message, void *payload);
 void __fastcall UINT_tower_on_attack_order(Unit *unit, AttackOrderPayload *prder);
 void __fastcall TURRET_tower_init(Unit *unit);
 void __cdecl TURRET_combat_tick(Task *task);
@@ -1050,7 +1063,7 @@ void __cdecl NETZ_sync_loop(Task *task);
 BOOL __fastcall NETZ_wait_for_packets(int *pending_count, int timeout_ms, const char *debug_message);
 void NETZ_signal_game_over();
 void __fastcall NETZ_broadcast(NetzPacketType pkt, const void *data, const size_t data_size);
-void *__fastcall NETZ_send_to_host(NetzPacketType pkt, const void *data, const size_t size);
+void NETZ_send_to_host(NetzPacketType pkt, const void *data, const size_t size);
 void __fastcall NETZ_broadcast_mandatory_response(NetzPacketType pkt, void *data, size_t data_size);
 void __cdecl MINI_mouse_loop(Task *task);
 void MINI_open();
@@ -1078,7 +1091,8 @@ void __fastcall REND_project_isometric(Entity *entity, RenderNode *node);
 void GAME_update_anim_anchors_and_minimap();
 void GAME_mission_cleanup();
 Unit *__fastcall UNIT_create(Task *task);
-void __fastcall UNIT_remove(Unit *unit);
+void UNIT_remove(Unit *unit);
+void UNIT_remove_task_and_entity(Unit *unit);
 Entity *__fastcall ENT_create_by_unit_type(UnitType type, int x, int y, int player_num);
 void __fastcall CURSOR_box_query_init(int y, int x, int z, int w);
 Task *CURSOR_box_query_next();
@@ -3450,7 +3464,7 @@ LevelDesc g_lvl_desc[68] =
   }
 };
 const char *g_last_error = "unknown error";
-const char *g_save_last_error = "non-specific";
+char g_save_last_error[256] = "non-specific";
 LevelId g_last_loaded_level_id = LevelId_Invalid;
 
 const char *mb_m01[] = {
@@ -4496,7 +4510,7 @@ ScriptType4 stru_46ECE8 = { MobdId_Schrap,                    nullptr, TaskKind_
 ScriptType4 stru_46ED00 = { MobdId_Font_Menu,                 nullptr, TaskKind_Coroutine, 1, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46ED18 = { MobdId_Font_Menu,                 GAME_mission_briefing_or_credits, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46ED30 = { MobdId_20,                        INPUT_keyboard_dispatcher_task, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
-ScriptType4 stru_46ED48 = { MobdId_20,                        TKS_terminate_with_entity, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
+ScriptType4 stru_46ED48 = { MobdId_20,                        TSK_terminate_with_entity, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46ED60 = { MobdId_IngameMenuUi,              UI_ingame_menu_controller, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46ED78 = { MobdId_Sidebar,                   UI_sidebar_refresh_loop, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46ED90 = { MobdId_MissionOutcomeModal,       MISSION_outcome_sequence_play, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
@@ -4599,7 +4613,7 @@ ScriptType4 stru_46FB08 = { MobdId_MainMenu,                  UI_main_menu_multi
 ScriptType4 stru_46FB20 = { MobdId_MainMenu,                  UI_main_menu_multi_ipx, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46FB38 = { MobdId_MainMenu,                  UI_main_menu_multi_modem, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46FB50 = { MobdId_MainMenu,                  UI_main_menu_multi_serial, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
-ScriptType4 stru_46FB68 = { MobdId_MainMenu,                  mode_null, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
+ScriptType4 stru_46FB68 = { MobdId_MainMenu,                  UNIT_fighter_tick, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46FB80 = { MobdId_MainMenu,                  UI_main_menu, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46FB98 = { MobdId_MainMenu,                  UI_main_menu_campaign_mute, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
 ScriptType4 stru_46FBB0 = { MobdId_MainMenu,                  UI_main_menu_campaign_surv, TaskKind_Coroutine, 0, 0, UnitType_Surv_Rifleman };
@@ -4898,7 +4912,7 @@ const char *g_script_names[196] =
   nullptr,
   "GAME_mission_briefing_or_credits",
   "INPUT_keyboard_dispatcher_task",
-  "TKS_terminate_with_entity",
+  "TSK_terminate_with_entity",
   "UI_ingame_menu_controller",
   "UI_sidebar_refresh_loop",
   "MISSION_outcome_sequence_play",
@@ -5001,7 +5015,7 @@ const char *g_script_names[196] =
   "UI_main_menu_multi_ipx",
   "UI_main_menu_multi_modem",
   "UI_main_menu_multi_serial",
-  "mode_null",
+  "UNIT_fighter_tick",
   "UI_main_menu",
   "UI_main_menu_campaign_mute",
   "UI_main_menu_campaign_surv",
@@ -5332,16 +5346,23 @@ int (*off_4772EC[2])() = {
 int (*off_4772F0)()
 //= &VBC16_block_decoder_4
 ;
+#define MAX_BOMBERS 60
 Bomber *g_bomber_active_head = NULL;
-Bomber *g_bomber_active_tail = NULL;
 Bomber *g_bomber_pool = NULL;
 Bomber *g_bomber_free_head = NULL;
 int dword_477314[] = { 0 }; // weak
 TechLevels g_beast_enclosure_levels = { { 0, 0, 0, 0, 0 }, 0, 0, 0, 0, 0 };
-UINT g_coroutine_eax = 0u;
 void *g_coroutine_esp = NULL;
 void *g_coroutine_current_stack = NULL;
 int g_coroutine_nesting_depth = 0;
+
+// Dedicated stack that COROUTINE_STACK_BORROW relocates onto, instead of the
+// root/scheduler coroutine's (possibly stale) saved esp. Allocated once in
+// TSK_init. Canary at [0] (lowest addr); esp starts at *_top and grows down.
+#define TSK_BORROW_STACK_CANARY 0xB0110C0Du
+#define TSK_BORROW_STACK_SIZE   (1024u * 1024u)
+uintptr_t *g_coroutine_borrow_stack = NULL;      // base (canary lives at [0])
+void *g_coroutine_borrow_stack_top = NULL;       // 16-byte-aligned high end
 Coroutine *g_coroutine_free_head = NULL;
 #define MAX_COROUTINES 2000
 #define MAX_TASKS 2000
@@ -5655,7 +5676,6 @@ BOOL g_nocd;
 BOOL g_no_shroud;
 BOOL g_unit_stats_override;
 int g_num_enemy_waves_remaining;
-int _bug_47A2FC_neg1_index[1]; // weak (tentative->1 elem)
 Vec2 g_multi_bunker_spawn_positions[2];
 int g_num_ally_waves_remaining;
 CplcPlayerSpawn g_multi_player_spawn_positions[6];
@@ -6083,55 +6103,52 @@ void NETZ_session_set_name(const char *name) {
 }
 
 //----- (00401000) --------------------------------------------------------
-BOOL UNIT_bomber_init()
+bool UNIT_bomber_init()
 {
-  Bomber *v0; // eax
-  int i; // ecx
+  g_bomber_pool = malloc(MAX_BOMBERS * sizeof(Bomber));
 
-  v0 = (Bomber *)malloc(0x2D0u);
-  g_bomber_pool = v0;
-  if ( !v0 )
-    return 0;
-  g_bomber_free_head = v0;
-  for ( i = 0; i < 59; ++i )
-  {
-    v0[i].next = &v0[i + 1];
-    v0 = g_bomber_pool;
+  if(nullptr == g_bomber_pool) {
+    return false;
   }
-  g_bomber_pool[59].next = nullptr;
-  g_bomber_active_head = (Bomber *)&g_bomber_active_head;
-  g_bomber_active_tail = (Bomber *)&g_bomber_active_head;
-  return 1;
+
+  g_bomber_free_head = g_bomber_pool;
+
+  for (int i = 0; i < MAX_BOMBERS - 1; ++i) {
+    g_bomber_pool[i].next = &g_bomber_pool[i + 1];
+  }
+  g_bomber_pool[MAX_BOMBERS - 1].next = nullptr;
+
+  g_bomber_active_head = END(g_bomber_active_head);
+  return true;
 }
 
-void __cdecl mode_null(Task *task) {
+void __cdecl UNIT_fighter_tick(Task *task) {
   (void)task;
 }
 
 //----- (00401060) --------------------------------------------------------
 void UNIT_bomber_cleanup()
 {
-  free(g_bomber_pool);
+  if(nullptr != g_bomber_pool){
+    free(g_bomber_pool);
+    g_bomber_pool = nullptr;
+  }
 }
 
 //----- (00401070) --------------------------------------------------------
-void __fastcall UNIT_bomber_add(Unit *unit)
+void UNIT_bomber_add(Unit *unit)
 {
-  Bomber *n; // eax
-
-  n = g_bomber_free_head;
-  if ( g_bomber_free_head )
-    g_bomber_free_head = g_bomber_free_head->next;
-  else
-    n = nullptr;
-  if ( n )
-  {
-    n->unit = unit;
-    n->next = g_bomber_active_head;
-    n->prev = (Bomber *)&g_bomber_active_head;
-    g_bomber_active_head->prev = n;
-    g_bomber_active_head = n;
+  Bomber *n = g_bomber_free_head;
+  if(nullptr == n) {
+    return;
   }
+  g_bomber_free_head = n->next;
+
+  n->unit = unit;
+  n->next = g_bomber_active_head;
+  n->prev = END(g_bomber_active_head);
+  g_bomber_active_head->prev = n;
+  g_bomber_active_head = n;
 }
 
 //----- (004010B0) --------------------------------------------------------
@@ -6144,11 +6161,10 @@ void __cdecl TURRET_cosmetic_tick(Task *task)
 //----- (004010C0) --------------------------------------------------------
 void __fastcall TURRET_mode_bomber_follow_orientation(Turret *turret)
 {
-  ptrdiff_t orientation; // eax
+  ptrdiff_t o = turret->parent->orientation;
 
-  orientation = turret->parent->orientation;
-  turret->current_mobd_frame = orientation;
-  ENT_anim_set_frame(turret->entity, turret->attachment->mobd_lookup_offset_idle, g_angle_to_orientation[orientation]);
+  turret->current_mobd_frame = o;
+  ENT_anim_set_frame(turret->entity, turret->attachment->mobd_lookup_offset_idle, g_angle_to_orientation[o]);
 }
 
 //----- (004010E0) --------------------------------------------------------
@@ -6164,96 +6180,79 @@ void __fastcall TURRET_mode_bomber_init(Turret *turret)
 //----- (00401110) --------------------------------------------------------
 void __fastcall TURRET_bomber_init(Unit *unit)
 {
-  Turret *turret; // esi
-  Entity *turret_entity; // eax
-  Task *task; // eax
-  UnitAttachment *attachment; // edx
-
-  if ( unit->stats->attachment )
-  {
-    turret = (Turret *)TSK_alloc(unit->task, 0x38u);
-    if ( turret )
-    {
-      memset(turret, 0, sizeof(Turret));
-      turret_entity = ENT_create_ex(
-                        unit->stats->attachment->mobd_id,
-                        unit->entity,
-                        TURRET_cosmetic_tick,
-                        TaskKind_Callback,
-                        unit->mobd_anchors.turret);
-      turret->entity = turret_entity;
-      turret_entity->rn->transform = (RenderTransform)REND_transform_aircraft_turret;
-      turret->entity->rn->flags |= RenderNode_PaletteOverride;// prolly INLINED RenderNode.SetPaletteOverride
-      turret->entity->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[unit->player_num]];
-      task = turret->entity->task;
-      turret->task = task;
-      task->ctx = turret;
-      turret->entity->ctx1 = turret;
-      turret->entity->z = 0;
-      turret->parent = unit;
-      turret->current_mobd_frame = unit->orientation;
-      attachment = unit->stats->attachment;
-      turret->mode = TURRET_mode_bomber_init;
-      turret->attachment = attachment;
-      unit->turret = turret;
-      turret->task->message_handler = MSG_turret_vehicle;
-    }
-    unit->entity->rn->flags &= ~RenderNode_Skip;
+  UnitAttachment *attachment = unit->stats->attachment;
+  if(nullptr == attachment) {
+    return;
   }
+
+  Turret *turret = TSK_alloc(unit->task, sizeof(Turret));
+  if(turret) {
+    memset(turret, 0, sizeof(Turret));
+
+    Entity *entity = ENT_create_ex(
+      attachment->mobd_id,
+      unit->entity,
+      TURRET_cosmetic_tick,
+      TaskKind_Callback,
+      unit->mobd_anchors.turret);
+
+    turret->entity = entity;
+    entity->rn->transform = (RenderTransform)REND_transform_aircraft_turret;
+    entity->rn->flags |= RenderNode_PaletteOverride;
+    entity->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[unit->player_num]];
+
+    Task *task = entity->task;
+    turret->task = task;
+    task->ctx = turret;
+    entity->ctx1 = turret;
+    entity->z = 0;
+
+    turret->parent = unit;
+    turret->current_mobd_frame = unit->orientation;
+    turret->mode = TURRET_mode_bomber_init;
+    turret->attachment = attachment;
+
+    unit->turret = turret;
+    turret->task->message_handler = MSG_turret_vehicle;
+  }
+
+  unit->entity->rn->flags &= ~RenderNode_Skip;
 }
 
 //----- (004011F0) --------------------------------------------------------
 void __fastcall MSG_bomber(
-        Task *receiver,
-        Task *sender,
-        TaskMessageType message,
-        void *payload)                  // void* actually, but Entity for ReceiveDmg message
+  Task *receiver,
+  Task *sender,
+  TaskMessageType msg,
+  void *payload)
 {
   (void)sender;
 
-  Unit *unit; // esi
-  int hitpoints; // eax
-  int new_hp; // eax
+  Unit *unit = receiver->ctx;
+  if (nullptr == unit || unit->destroyed) return;
 
-  unit = (Unit *)receiver->ctx;
-  if ( !unit->destroyed )
-  {
-    switch ( message )
-    {
-      case TaskMessage_ReceiveDamage:
-        Entity *entity = (Entity *)payload;
-        if (entity)                          // inlined
-        {
-          hitpoints = unit->hitpoints;
-          if ( hitpoints > 0 )
-          {
-            new_hp = hitpoints - entity->vehicle_damage;
-            unit->hitpoints = new_hp;
-            if ( new_hp <= 0 )
-            {
-              TSK_yield(unit->task, TaskWait_Interval, 1);
-              unit->hitpoints = 0;
-              unit->mode = UNIT_mode_bomber_on_death;
-              unit->destroyed = 1;
-            }
-          }
-        }
-        UNIT_status_bar_update_frame(unit);
-        break;
-      case TaskMessage_UnitSelected_or_UiLeftClick:
-        UNIT_on_selected(unit);
-        break;
-      case TaskMessage_UnitDeselected_or_SaveLoadScrollDown_or_ShowNotificationBox:
-        UNIT_on_deselected(unit);
-        break;
-      case TaskMessage_ShowHint_or_SaveLoadScrollUp:
-        UNIT_show_hint(unit);
-        break;
-      default:
-        return;
-    }
+  switch (msg) {
+    case TaskMessage_ReceiveDamage:
+      UNIT_apply_damage_ex(unit, payload, UNIT_mode_bomber_on_death);
+      UNIT_status_bar_update_frame(unit);
+      break;
+    case TaskMessage_UnitSelected_or_UiLeftClick:
+      UNIT_on_selected(unit);
+      break;
+    case TaskMessage_UnitDeselected_or_SaveLoadScrollDown_or_ShowNotificationBox:
+      UNIT_on_deselected(unit);
+      break;
+    case TaskMessage_ShowHint_or_SaveLoadScrollUp:
+      UNIT_show_hint(unit);
+      break;
+    default:
+      return;
   }
 }
+
+#define ENT_X(ent) (*((ent)->is_collidable = 1, &(ent)->x))
+#define ENT_Y(ent) (*((ent)->is_collidable = 1, &(ent)->y))
+#define ENT_Z(ent) (*((ent)->is_collidable = 1, &(ent)->z))
 
 //----- (004012D0) --------------------------------------------------------
 void __cdecl UNIT_bomber_tick(Task *task)
@@ -6275,23 +6274,10 @@ void __cdecl UNIT_bomber_tick(Task *task)
     cmd = &g_mapd_layers_rns[0]->rn->cmd;
     rnd = GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 227) & 3;
     unit = UNIT_create(task);
-    v4 = g_bomber_free_head;                    // INLINED unit_bomber_init
-    if ( g_bomber_free_head )
-      g_bomber_free_head = g_bomber_free_head->next;
-    else
-      v4 = nullptr;
-    if ( v4 )
-    {
-      v4->unit = unit;
-      v4->next = g_bomber_active_head;
-      v4->prev = (Bomber *)&g_bomber_active_head;
-      g_bomber_active_head->prev = v4;
-      g_bomber_active_head = v4;
-    }
-    unit->entity->is_collidable = 1;
+    UNIT_bomber_add(unit);
     entity = unit->entity;
-    unit->order_next_waypoint_x = entity->x;
-    unit->order_next_waypoint_y = entity->y;
+    unit->order_next_waypoint_x = ENT_X(entity);
+    unit->order_next_waypoint_y = ENT_Y(entity);
     if ( rnd > 1 )
     {
       v9 = GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 246);
@@ -6309,21 +6295,9 @@ void __cdecl UNIT_bomber_tick(Task *task)
         v8 = -8192;
       else
         v8 = (REND_get_height(cmd) + 32) << 8;
-    }                                           // Original engine macro (reconstructed):
-                                                // #define ENT_X(ent)  ((ent)->collision_active = TRUE, (ent)->x)
-                                                // #define ENT_Y(ent)  ((ent)->collision_active = TRUE, (ent)->y)
-                                                //
-                                                // // Usage in Aircraft.cpp:
-                                                // ENT_X(unit->entity) = v7;     // decompiles as: is_collidable=1; x=v7;
-                                                // ENT_Y(unit->entity) = v8;     // decompiles as: is_collidable=1; y=v8;
-                                                //
-                                                // Pattern appears on BOTH reads AND writes (not just writes)
-                                                //
-                                                // Ensures any entity whose coordinates are touched by game logic gets full collision response, rather than ghosting through objects on first physics tick.
-    unit->entity->is_collidable = 1;            // INLINED or macro
-    unit->entity->x = v7;
-    unit->entity->is_collidable = 1;            // INLINED or macro
-    unit->entity->y = v8;
+    }
+    ENT_X(unit->entity) = v7;
+    ENT_Y(unit->entity) = v8;
     unit->entity->rn->transform = (RenderTransform)REND_transform_airborne;
     unit->entity->z = 46080;
     unit->task->message_handler = (MessageHandler)MSG_bomber;
@@ -6351,79 +6325,60 @@ void __cdecl UNIT_bomber_tick(Task *task)
 //----- (00401480) --------------------------------------------------------
 void __fastcall UNIT_mode_bomber_crash_landing(Unit *unit)
 {
-  Entity *entity; // esi
-  Entity *v3; // eax
-  Task *task; // eax
-
-  entity = unit->entity;
-  if ( entity->z <= 0 )
-  {
-    entity->z = 255;
-    SOUND_play_positional(entity, SoundId_Explosion_AircraftCrash, g_sfx_vol, 0);
-    entity->mobd_id = MobdId_Explosions;
-    ENT_anim_set(entity, 0);
-    entity->anim_speed = 0x20000000;
-    entity->z = 768;
-    ENT_apply_aoe_damage(entity, 64);
-    task = unit->task;
-    unit->mode = UNIT_mode_bomber_cleanup;
-    TSK_yield(task, TaskWait_Interval, 20);
-  }
-  else
-  {
-    v3 = SCHRAP_bomber_fire_trail_create(unit);
-    if ( v3 )
-    {
-      v3->z = unit->entity->z + 256;
-      v3->rn->transform = (RenderTransform)REND_transform_airborne;
+  Entity *e = unit->entity;
+  if(e->z > 0) {
+    Entity *trail = SCHRAP_bomber_fire_trail_create(unit);
+    if(trail) {
+      trail->z = e->z + 256;
+      trail->rn->transform = (RenderTransform)REND_transform_airborne;
     }
-    TSK_yield(unit->task, TaskWait_Interval, 20);
+  } else {
+    e->z = 255;
+    SOUND_play_positional(e, SoundId_Explosion_AircraftCrash, g_sfx_vol, 0);
+    e->mobd_id = MobdId_Explosions;
+    ENT_anim_set(e, 0);
+    e->anim_speed = 0x20000000;
+    e->z = 768;
+    ENT_apply_aoe_damage(e, 64);
+    unit->mode = UNIT_mode_bomber_cleanup;
   }
+  TSK_yield(unit->task, TaskWait_Interval, 20);
 }
 
 //----- (00401530) --------------------------------------------------------
-void __fastcall UNIT_bomber_initiate_end_sequence(Unit *unit, BOOL crash_or_depart)
+void UNIT_bomber_initiate_end_sequence(Unit *unit, bool should_crash)
 {
-  Task *task; // eax
-  Turret *turret; // eax
-  void (__fastcall *mode)(Unit *); // eax
-  Task *v7; // [esp-Ch] [ebp-14h]
-
-  task = unit->task;
+  Task *task = unit->task;
   unit->destroyed = 1;
-  task->sticky_events &= ~0x10000000u;
+  task->sticky_events &= ~TaskEvent_AnimCompleted;
   TSK_send_message(
-    unit->task,
+    task,
     TaskMessage_UnitDeselected_or_SaveLoadScrollDown_or_ShowNotificationBox,
     nullptr,
     g_game_update_loop_task);
-  turret = unit->turret;
-  if ( turret )
-  {
-    ENT_remove(turret->entity);
-    TSK_kill(unit->turret->task);
-    TSK_dealloc(unit->task, unit->turret);
+
+  Turret *turret = unit->turret;
+  if(turret) {
+    TURRET_cleanup_kill(task, turret);
   }
+
   TSK_broadcast_message(
-    unit->task,
+    task,
     TaskMessage_UnitDeselected_or_SaveLoadScrollDown_or_ShowNotificationBox,
     unit,
     TaskChannel_UnitEvents);
-  unit->task->channel = TaskChannel_None;
+  task->channel = TaskChannel_None;
+
   unit->entity->z_speed = 0;
   unit->entity->z_speed_limit = 512;
   unit->entity->z_acceleration = -10;
-  if ( crash_or_depart )
-  {
-    mode = unit->mode;
+
+  if(should_crash) {
+    unit->mode_return = unit->mode;
     unit->mode = UNIT_mode_bomber_crash_landing;
-    unit->mode_return = mode;
-  }
-  else
-  {
-    v7 = unit->task;
+  } else {
     unit->mode = UNIT_mode_bomber_cleanup;
-    TSK_yield(v7, TaskWait_Interval, 60);
+    TSK_yield(task, TaskWait_Interval, 60);
   }
 }
 
@@ -6440,9 +6395,7 @@ void __fastcall UNIT_mode_bomber_cleanup(Unit *unit)
     }
   }
 
-  ENT_remove(unit->entity);
-  TSK_schedule_self_destruct(unit->task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00401660) --------------------------------------------------------
@@ -6466,59 +6419,51 @@ void __fastcall UNIT_bomber_set_departure_point(Unit *unit)
 //----- (004016B0) --------------------------------------------------------
 void __fastcall UNIT_mode_bomber_drop_bomb(Unit *unit)
 {
-  int bombing_cooldown; // eax
-  UnitProjectileType *projectile; // edi
-  Entity *v4; // eax
-  ptrdiff_t mobd_lookup_offset_travel; // edx
-  Entity *v6; // ebx
-  RenderNode *rn; // edx
-  Task *task; // eax
-  int num_bombs_to_drop; // eax
-
-  bombing_cooldown = unit->cplc_spawn_param;
-  if ( bombing_cooldown )
-  {
+  int bombing_cooldown = unit->cplc_spawn_param;
+  if(bombing_cooldown) {
     unit->cplc_spawn_param = bombing_cooldown - 1;
+    return;
   }
-  else if ( unit->multi_purpose_field_3 )
-  {
-    projectile = unit->stats->projectile;
-    if ( projectile && g_num_active_projectiles < 200 )
-    {
-      ++g_num_active_projectiles;
-      v4 = ENT_create_ex(
-             projectile->mobd_id,
-             unit->entity,
-             projectile->task_fn,
-             TaskKind_Callback,
-             unit->mobd_anchors.turret);
-      mobd_lookup_offset_travel = projectile->mobd_lookup_offset_travel;
-      v6 = v4;
-      if ( mobd_lookup_offset_travel != -1 )
-        ENT_anim_set(v4, mobd_lookup_offset_travel);
-      rn = v6->rn;
-      v6->z = unit->entity->z;
-      rn->transform = (RenderTransform)REND_transform_aircraft_turret;
-      task = v6->task;
-      v6->ctx1 = projectile;
-      task->ctx = nullptr;
-      v6->projectile_ctx.attacker = unit;
-      v6->projectile_ctx.attacker_unit_id = unit->unit_id;
-      v6->infantry_damage = LOWORD(projectile->damage_to_infantry)
-                          + ((projectile->damage_to_infantry * g_veterancy_damage_mod[unit->veterancy]) >> 8);
-      v6->vehicle_damage = LOWORD(projectile->damage_to_vehicles)
-                         + ((projectile->damage_to_vehicles * g_veterancy_damage_mod[unit->veterancy]) >> 8);
-      v6->building_damage = LOWORD(projectile->damage_to_buildings)
-                          + ((projectile->damage_to_buildings * g_veterancy_damage_mod[unit->veterancy]) >> 8);
-    }
-    num_bombs_to_drop = unit->multi_purpose_field_3;
-    unit->cplc_spawn_param = 15;
-    unit->multi_purpose_field_3 = num_bombs_to_drop - 1;
-  }
-  else
-  {
+
+  int bombs_remaining = unit->multi_purpose_field_3;
+  if(!bombs_remaining) {
     unit->mode = UNIT_mode_bomber_home_in_on_target;
+    return;
   }
+
+  UnitProjectileType *projectile = unit->stats->projectile;
+  if(projectile && g_num_active_projectiles < 200) {
+    ++g_num_active_projectiles;
+
+    Entity *bomb = ENT_create_ex(
+      projectile->mobd_id,
+      unit->entity,
+      projectile->task_fn,
+      TaskKind_Callback,
+      unit->mobd_anchors.turret);
+
+    if(projectile->mobd_lookup_offset_travel != -1) {
+      ENT_anim_set(bomb, projectile->mobd_lookup_offset_travel);
+    }
+
+    bomb->z = unit->entity->z;
+    bomb->rn->transform = (RenderTransform)REND_transform_aircraft_turret;
+    bomb->ctx1 = projectile;
+    bomb->task->ctx = nullptr;
+    bomb->projectile_ctx.attacker = unit;
+    bomb->projectile_ctx.attacker_unit_id = unit->unit_id;
+
+    int veterancy_mod = g_veterancy_damage_mod[unit->veterancy];
+    bomb->infantry_damage = projectile->damage_to_infantry
+                          + ((projectile->damage_to_infantry * veterancy_mod) >> 8);
+    bomb->vehicle_damage = projectile->damage_to_vehicles
+                         + ((projectile->damage_to_vehicles * veterancy_mod) >> 8);
+    bomb->building_damage = projectile->damage_to_buildings
+                          + ((projectile->damage_to_buildings * veterancy_mod) >> 8);
+  }
+
+  unit->cplc_spawn_param = 15;
+  unit->multi_purpose_field_3 = bombs_remaining - 1;
 }
 
 //----- (004017E0) --------------------------------------------------------
@@ -6763,14 +6708,12 @@ void __cdecl AIRSTRIKE_sidebar_task(Task *task)
       ctx->mode = AIRSTRIKE_mode_init;
       task->message_handler = MSG_airstrike_sidebar;
       GAME_player_is_evolved();
-      v3->x = 0x26000;
-      v3->is_collidable = 1;                    // INLINED macro
-      v3->y = 0x12000;
+      ENT_X(v3) = 0x26000;
+      ENT_Y(v3) = 0x12000;
       v3->z = 2;
       rn = entity->rn;
-      entity->x = 0x26400;
-      entity->is_collidable = 1;
-      entity->y = 0x13800;
+      ENT_X(entity) = 0x26400;
+      ENT_Y(entity) = 0x13800;
       entity->z = 3;
       rn->transform = (RenderTransform)REND_transform_ui;
       entity->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[g_player_num]];// INLINED RenderNode.SetPaletteOverride
@@ -6785,8 +6728,7 @@ void __cdecl AIRSTRIKE_sidebar_task(Task *task)
 void __fastcall NUKE_mode_cleanup(Nuke *nuke)
 {
   --g_num_active_projectiles;
-  ENT_remove(nuke->entity);
-  TSK_schedule_self_destruct(nuke->task);
+  TSK_terminate_and_entity(nuke->task, nuke->entity);
 }
 
 //----- (00401D30) --------------------------------------------------------
@@ -6887,22 +6829,21 @@ void __fastcall MSG_beast_enclosure(
     switch ( message )
     {
       case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_beast_enclosure_on_death);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_beast_enclosure_on_death);
         UNIT_building_status_bar_update_health(unit);
         return;
       case TaskMessage_Sabotage:
-        UNIT_sabotage(unit, (Unit *)payload, UNIT_mode_beast_enclosure_on_death);
+        UNIT_sabotage(unit, payload, UNIT_mode_beast_enclosure_on_death);
         return;
       case TaskMessage_Destroy:
-        UNIT_destroy(unit, UNIT_mode_beast_enclosure_on_death);
+        UNIT_on_destroy(unit, UNIT_mode_beast_enclosure_on_death);
         return;
       case TaskMessage_UnitReady:
         UnitType type = (UnitType)(uintptr_t)payload;
-        unit->entity->is_collidable = 1;
         if ( ENT_create_by_unit_type(
                type,
-               unit->mobd_anchors.rally->x + unit->entity->x,
-               unit->mobd_anchors.rally->y + unit->entity->y,
+               unit->mobd_anchors.rally->x + ENT_X(unit->entity),
+               unit->mobd_anchors.rally->y + ENT_Y(unit->entity),
                unit->player_num)
           && g_player_num == unit->player_num )
         {
@@ -7169,18 +7110,16 @@ void __fastcall UNIT_mode_beast_enclosure_complete(Unit *unit)
 
 //----- (004024D0) --------------------------------------------------------
 void __fastcall MSG_blacksmith_upgrades(
-        Task *receiver,
-        Task *sender,
-        TaskMessageType message,
-        void *payload)
+  Task *receiver,
+  Task *sender,
+  TaskMessageType msg,
+  void *payload)
 {
-  Unit *unit; // esi
-  BuildingState *state; // eax
   SidebarFactoryProduction *prod; // ecx
   int v11; // eax
 
-  unit = (Unit *)receiver->ctx;
-  state = (BuildingState *)unit->state;
+  Unit *unit = receiver->ctx;
+  BuildingState *state = unit->state;
   prod = state->prod;
   state->upgrade_level = min(3, state->upgrade_level + 1);
   if ( unit->player_num == g_player_num )
@@ -7197,7 +7136,7 @@ void __fastcall MSG_blacksmith_upgrades(
     }
   }
   UNIT_status_bar_update_tech(unit);
-  MSG_building_generic(receiver, sender, message, payload);
+  MSG_building_generic(receiver, sender, msg, payload);
 }
 
 //----- (00402550) --------------------------------------------------------
@@ -7214,22 +7153,21 @@ void __fastcall MSG_blacksmith(Task *receiver, Task *sender, TaskMessageType mes
     switch ( message )
     {
       case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_blacksmith_on_death);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_blacksmith_on_death);
         UNIT_building_status_bar_update_health(unit);
         break;
       case TaskMessage_Sabotage:
-        UNIT_sabotage(unit, (Unit *)payload, UNIT_mode_blacksmith_on_death);
+        UNIT_sabotage(unit, payload, UNIT_mode_blacksmith_on_death);
         break;
       case TaskMessage_Destroy:
-        UNIT_destroy(unit, UNIT_mode_blacksmith_on_death);
+        UNIT_on_destroy(unit, UNIT_mode_blacksmith_on_death);
         break;
       case TaskMessage_UnitReady:
         UnitType type = (UnitType)(uintptr_t)payload;
-        unit->entity->is_collidable = 1;
         if ( ENT_create_by_unit_type(
                type,
-               unit->mobd_anchors.rally->x + unit->entity->x,
-               unit->mobd_anchors.rally->y + unit->entity->y,
+               unit->mobd_anchors.rally->x + ENT_X(unit->entity),
+               unit->mobd_anchors.rally->y + ENT_Y(unit->entity),
                unit->player_num) )
         {
           if ( g_player_num == unit->player_num )
@@ -7267,11 +7205,8 @@ void __fastcall MSG_blacksmith(Task *receiver, Task *sender, TaskMessageType mes
 }
 
 //----- (00402710) --------------------------------------------------------
-void __cdecl UNIT_blacksmith_tick(Task *task)
-{
-  Unit *unit; // esi
-
-  unit = (Unit *)task->ctx;
+void __cdecl UNIT_blacksmith_tick(Task *task) {
+  Unit *unit = task->ctx;
   if ( !g_level_loading_lock )
   {
     if ( !unit )
@@ -7378,6 +7313,8 @@ BOOL TSK_coroutine_init()
     g_coroutine_pool[i].context = nullptr;
     g_coroutine_pool[i].stack = nullptr;
     g_coroutine_pool[i].name = nullptr;
+    g_coroutine_pool[i].stack_capacity = 0;
+    g_coroutine_pool[i].stack_highwater = 0;
     g_coroutine_pool[i].next = &g_coroutine_pool[i + 1];
   }
   g_coroutine_pool[MAX_COROUTINES - 1].next = nullptr;
@@ -7402,9 +7339,18 @@ Coroutine *__fastcall TSK_coroutine_create(void (__cdecl *starter)(), const size
   g_coroutine_free_head = g_coroutine_free_head->next;
   co->context = stack;
   co->name = name;
+  co->stack_capacity = stack_size;
+  co->stack_highwater = 0;
   co->context[0] = TSK_COROUTINE_STACK_CANARY;
 
   uintptr_t sp = (uintptr_t)(stack_size / sizeof(int));
+#if COROUTINE_STACK_PROFILE
+  // Paint everything but the canary; the setup words below overwrite the top.
+  // TSK_coroutine_check_canary measures the high-water mark (deepest esp ever
+  // reached) by scanning up from context[1] for the first surviving paint.
+  for (uintptr_t k = 1; k < sp; ++k)
+    co->context[k] = COROUTINE_STACK_PAINT;
+#endif
   co->context[sp - 1] = (uintptr_t)TURRET_mode_null;
   co->context[sp - 2] = 0;
   co->context[sp - 3] = (uintptr_t)(void *)starter;
@@ -7421,7 +7367,25 @@ void TSK_coroutine_check_canary(Coroutine *co, const char *where)
       "TSK_coroutine stack overflow: name=%s co=%p context=%p canary=0x%08x (want 0x%08x) at %s\n",
       co->name ? co->name : "?", (void *)co, (void *)co->context,
       (unsigned)co->context[0], (unsigned)TSK_COROUTINE_STACK_CANARY, where);
+    coro_trace_dump("canary tripped");
   }
+#if COROUTINE_STACK_PROFILE
+  if (co && co->context && co->stack_capacity) {
+    uintptr_t words = co->stack_capacity / sizeof(int);
+    uintptr_t k = 1;
+    while (k < words && co->context[k] == COROUTINE_STACK_PAINT)
+      ++k;
+    size_t used = (size_t)((words - k) * sizeof(int));
+    size_t *hw = &co->stack_highwater;
+    if (used > *hw) {
+      *hw = used;
+      printf("[stack] %s high-water %zu / %zu bytes (%zu%%)\n",
+             co->name ? co->name : "?", used, co->stack_capacity,
+             used * 100 / co->stack_capacity);
+      fflush(stdout);
+    }
+  }
+#endif
 }
 
 //----- (00402A00) --------------------------------------------------------
@@ -7541,6 +7505,236 @@ void TSK_execute_async(Coroutine *next)
   x64 inline asm version
 #endif
 
+// Coroutines run on a tight stack (see TSK_init's sizing comment); calling a
+// heavyweight external API (DirectPlay/COM, Win32 GDI, etc.) from inside one
+// needs a large, known-good stack instead. Relocate esp onto the dedicated
+// g_coroutine_borrow_stack_top (allocated once in TSK_init) -- NOT the
+// root/scheduler coroutine's saved esp, which can be stale or point into a
+// region the OS won't auto-grow, silently smashing memory. Reentrant:
+// g_coroutine_nesting_depth ensures only the outermost BORROW/RETURN pair
+// actually relocates esp -- nested calls just count.
+// Naked, and the bookkeeping is inlined directly in asm rather than calling
+// out to a C helper: a `call` from a naked function's entry point lands esp
+// 8 bytes off the ABI-required 16-byte boundary, which risks a #GP if the
+// callee ever needs an aligned spill (unlikely today, but UBSan/codegen
+// changes could introduce one).
+//
+// Invariant: never TSK_yield/TSK_execute_async while borrowed -- doing so
+// would resume another coroutine on the same borrow stack this is still using.
+// Enforced with asserts at every TSK_execute_async call site.
+#if defined(_MSC_VER)
+__declspec(naked)
+void COROUTINE_STACK_BORROW_ASM(void)
+{
+  __asm {
+    mov eax, g_coroutine_list_head
+    cmp eax, g_coroutine_current
+    jz skip
+    inc g_coroutine_nesting_depth
+    cmp g_coroutine_nesting_depth, 1
+    jnz skip
+    pop ecx                    ; return address into caller
+    mov g_coroutine_esp, esp   ; save caller's true position on its own stack
+    mov esp, g_coroutine_borrow_stack_top
+    push ecx                   ; relocate the return address onto the new stack
+  skip:
+    ret
+  }
+}
+
+__declspec(naked)
+void COROUTINE_STACK_RETURN_ASM(void)
+{
+  __asm {
+    mov eax, g_coroutine_list_head
+    cmp eax, g_coroutine_current
+    jz skip
+    dec g_coroutine_nesting_depth
+    jnz skip
+    pop ecx
+    mov esp, g_coroutine_esp
+    push ecx
+  skip:
+    ret
+  }
+}
+#elif (defined(__GNUC__) || defined(__clang__)) && defined(__i386)
+#if defined(_WIN32)
+#  define ASM_SYM(s) "_" s
+#else
+#  define ASM_SYM(s) s
+#endif
+__attribute__((naked, noinline))
+void COROUTINE_STACK_BORROW_ASM(void)
+{
+  __asm__ volatile(
+    "movl " ASM_SYM("g_coroutine_list_head") ", %eax\n\t"
+    "cmpl " ASM_SYM("g_coroutine_current") ", %eax\n\t"
+    "jz 1f\n\t"
+    "incl " ASM_SYM("g_coroutine_nesting_depth") "\n\t"
+    "cmpl $1, " ASM_SYM("g_coroutine_nesting_depth") "\n\t"
+    "jnz 1f\n\t"
+    "popl %ecx\n\t"
+    "movl %esp, " ASM_SYM("g_coroutine_esp") "\n\t"
+    "movl " ASM_SYM("g_coroutine_borrow_stack_top") ", %esp\n\t"
+    "pushl %ecx\n\t"
+    "1:\n\t"
+    "ret\n\t"
+  );
+}
+
+__attribute__((naked, noinline))
+void COROUTINE_STACK_RETURN_ASM(void)
+{
+  __asm__ volatile(
+    "movl " ASM_SYM("g_coroutine_list_head") ", %eax\n\t"
+    "cmpl " ASM_SYM("g_coroutine_current") ", %eax\n\t"
+    "jz 1f\n\t"
+    "decl " ASM_SYM("g_coroutine_nesting_depth") "\n\t"
+    "jnz 1f\n\t"
+    "popl %ecx\n\t"
+    "movl " ASM_SYM("g_coroutine_esp") ", %esp\n\t"
+    "pushl %ecx\n\t"
+    "1:\n\t"
+    "ret\n\t"
+  );
+}
+#undef ASM_SYM
+#else
+  x64 inline asm version
+#endif
+
+// ---- COROUTINE_DIAG: stack-borrow tracer -------------------------------
+// Set to 0 to compile the diagnostics out (BORROW/RETURN then call the naked
+// asm directly with zero overhead). When on, every BORROW/RETURN records a row
+// (op, site, depth, current, list_head, esp-before, esp-after) into a ring
+// buffer; coro_trace_dump() prints it. It is dumped automatically when the
+// stack canary trips (TSK_coroutine_check_canary) or an execute_async runs
+// while borrowed -- so the last op before "things go south" is visible even in
+// an NDEBUG build where the asserts are gone.
+#define COROUTINE_DIAG 0
+#if COROUTINE_DIAG
+typedef struct {
+  char op;               // 'B'/'b' = borrow enter/leave, 'R'/'r' = return enter/leave
+  const char *file;
+  int line;
+  int depth;
+  void *cur;
+  void *head;
+  void *esp;
+} CoroTrace;
+enum { CORO_TRACE_N = 512 };
+CoroTrace g_coro_trace[CORO_TRACE_N];
+unsigned g_coro_trace_i = 0;
+void *g_coro_last_target = (void *)(uintptr_t)0xDEADBEEFu;  // last distinct borrow target seen
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((always_inline)) static inline void *coro_read_esp(void)
+{
+  void *sp;
+  __asm__ volatile("movl %%esp, %0" : "=r"(sp));
+  return sp;
+}
+#else
+static inline void *coro_read_esp(void) { return nullptr; }
+#endif
+
+static inline void coro_trace(char op, const char *file, int line, void *esp)
+{
+  CoroTrace *t = &g_coro_trace[g_coro_trace_i++ % CORO_TRACE_N];
+  t->op = op;
+  t->file = file;
+  t->line = line;
+  t->depth = g_coroutine_nesting_depth;
+  t->cur = (void *)g_coroutine_current;
+  t->head = (void *)g_coroutine_list_head;
+  t->esp = esp;
+}
+
+void coro_trace_dump(const char *why)
+{
+  printf("[coro] TRACE DUMP (%s): depth=%d cur=%p head=%p head->stack=%p\n",
+         why, g_coroutine_nesting_depth, (void *)g_coroutine_current,
+         (void *)g_coroutine_list_head,
+         g_coroutine_list_head ? g_coroutine_list_head->stack : nullptr);
+  unsigned n = g_coro_trace_i < CORO_TRACE_N ? g_coro_trace_i : CORO_TRACE_N;
+  unsigned start = g_coro_trace_i < CORO_TRACE_N ? 0 : g_coro_trace_i % CORO_TRACE_N;
+  for (unsigned k = 0; k < n; k++) {
+    CoroTrace *t = &g_coro_trace[(start + k) % CORO_TRACE_N];
+    printf("  %c %s:%d depth=%d cur=%p head=%p esp=%p\n",
+           t->op, t->file, t->line, t->depth, t->cur, t->head, t->esp);
+  }
+  fflush(stdout);
+}
+
+// Detect the borrowed code overrunning the dedicated stack (grows down toward
+// the canary at g_coroutine_borrow_stack[0]). Cheap; call after every RETURN.
+void coro_check_borrow_canary(const char *where)
+{
+  if(g_coroutine_borrow_stack && g_coroutine_borrow_stack[0] != TSK_BORROW_STACK_CANARY) {
+    printf("[coro] BORROW STACK OVERFLOW canary=0x%08x (want 0x%08x) at %s\n",
+           (unsigned)g_coroutine_borrow_stack[0], (unsigned)TSK_BORROW_STACK_CANARY, where);
+    coro_trace_dump("borrow stack overflow");
+  }
+}
+
+// Bisection probe: set to 0 to make BORROW/RETURN no-ops (run everything on the
+// coroutine's own -- currently 1MB -- stack). If the menu stabilizes with this
+// 0, the borrow relocation is the culprit. Keep at 1 for the real diagnosis.
+#define COROUTINE_BORROW_ENABLE 1
+#if COROUTINE_BORROW_ENABLE
+#  define COROUTINE_DO_BORROW() COROUTINE_STACK_BORROW_ASM()
+#  define COROUTINE_DO_RETURN() COROUTINE_STACK_RETURN_ASM()
+#else
+#  define COROUTINE_DO_BORROW() ((void)0)
+#  define COROUTINE_DO_RETURN() ((void)0)
+#endif
+
+#define COROUTINE_STACK_BORROW() do { \
+  bool relocate_ = (g_coroutine_current != g_coroutine_list_head) && (g_coroutine_nesting_depth == 0); \
+  void *target_ = g_coroutine_borrow_stack_top; \
+  void *sp_before_ = coro_read_esp(); \
+  coro_trace('B', __FILE__, __LINE__, sp_before_); \
+  if(relocate_ && target_ != g_coro_last_target) { \
+    g_coro_last_target = target_; \
+    printf("[coro] borrow target=%p at %s:%d cur=%p head=%p\n", \
+           target_, __FILE__, __LINE__, (void *)g_coroutine_current, (void *)g_coroutine_list_head); \
+    fflush(stdout); \
+  } \
+  COROUTINE_DO_BORROW(); \
+  void *sp_after_ = coro_read_esp(); \
+  coro_trace('b', __FILE__, __LINE__, sp_after_); \
+  if(relocate_ && COROUTINE_BORROW_ENABLE) { \
+    if(target_ == nullptr) { \
+      printf("[coro] BORROW onto NULL borrow stack at %s:%d\n", __FILE__, __LINE__); \
+      coro_trace_dump("borrow null target"); \
+    } else if(sp_after_ == sp_before_) { \
+      printf("[coro] BORROW expected relocate but esp unchanged=%p at %s:%d\n", sp_after_, __FILE__, __LINE__); \
+      coro_trace_dump("borrow no-op"); \
+    } \
+  } \
+} while(0)
+#define COROUTINE_STACK_RETURN() do { \
+  coro_trace('R', __FILE__, __LINE__, coro_read_esp()); \
+  COROUTINE_DO_RETURN(); \
+  coro_trace('r', __FILE__, __LINE__, coro_read_esp()); \
+  coro_check_borrow_canary(__FILE__); \
+} while(0)
+#define CORO_ASSERT_UNBORROWED() do { \
+  if(g_coroutine_nesting_depth != 0) coro_trace_dump("execute_async while borrowed"); \
+  assert(g_coroutine_nesting_depth == 0); \
+} while(0)
+#else
+void coro_trace_dump(const char *why) { (void)why; }
+#define COROUTINE_STACK_BORROW() COROUTINE_STACK_BORROW_ASM()
+#define COROUTINE_STACK_RETURN() COROUTINE_STACK_RETURN_ASM()
+#define CORO_ASSERT_UNBORROWED() assert(g_coroutine_nesting_depth == 0)
+#endif
+
+// Convenience for the common single-statement call sites.
+#define COROUTINE_RUN_ON_MAIN_STACK(stmt) \
+  do { COROUTINE_STACK_BORROW(); stmt; COROUTINE_STACK_RETURN(); } while(0)
+
 //----- (00402AB0) --------------------------------------------------------
 void __fastcall UNIT_mode_building_under_construction(Unit *unit)
 {
@@ -7595,31 +7789,35 @@ void __fastcall TURRET_buiding_init(Unit *unit)
 }
 
 //----- (00402BB0) --------------------------------------------------------
+static void UNIT_update_grid_anchor(Unit *unit)
+{
+  // BUG (decompiler): points[0].id is really MobdPoint.id, not a pointer —
+  // points is an array of MobdPoint, so points[0].id doubles as the head
+  // of an inline linked list.
+  MobdPoint *pt = (MobdPoint *)unit->entity->anim_current_frame->points[0].id;
+  if(!pt) {
+    return;
+  }
+  for(int i = pt->id; i != -1; ++pt) {
+    if(i == 3) {
+      unit->mobd_anchors.grid = pt;
+    }
+    i = pt[1].id;
+  }
+}
+
 void __fastcall UNIT_building_construction_start(Unit *unit, UnitMode arrive_mode)
 {
-  Entity *entity; // eax
-  MobdPoint *id; // eax
-  int i; // ecx
+  Entity *entity = unit->entity;
 
-  ENT_anim_set_frame(unit->entity, unit->stats->mobd_lookup_offset_attack, 0);
-  if ( unit->player_num == g_player_num )
+  ENT_anim_set_frame(entity, unit->stats->mobd_lookup_offset_attack, 0);
+  if(unit->player_num == g_player_num) {
     TSK_send_message(unit->task, TaskMessage_AdvanceConstructionStage, unit, g_game_update_loop_task);
-  entity = unit->entity;
-  unit->mode_arrive = arrive_mode;
-  // BUG: points[0].id is int (MobdPoint.id field), not MobdPoint*. Decompiler type confusion.
-  // points is array of MobdPoint structs, so points[0].id is the id field of first point.
-  id = (MobdPoint *)entity->anim_current_frame->points[0].id;  // INLINED NNN
-  if ( id )
-  {
-    for ( i = id->id; i != -1; ++id )
-    {
-      if ( i == 3 )
-        unit->mobd_anchors.grid = id;
-      i = id[1].id;
-    }
   }
+  unit->mode_arrive = arrive_mode;
+  UNIT_update_grid_anchor(unit);
   BOXD_building_claim_area(unit);
-  unit->entity->rn->flags &= ~RenderNode_Skip;
+  entity->rn->flags &= ~RenderNode_Skip;
   unit->mode = UNIT_mode_building_under_construction;
 }
 
@@ -7725,19 +7923,21 @@ void __fastcall UNIT_sabotage(Unit *unit, Unit *saboteur, UnitMode on_death)
   }
 }
 
-//----- (00402E40) --------------------------------------------------------
 void __fastcall UNIT_destroy(Unit *unit, UnitMode next_mode)
 {
-  Task *task; // [esp-Ch] [ebp-14h]
+  unit->hitpoints = 0;  // probably something happens after yield to units with 0 hp
+  TSK_yield(unit->task, TaskWait_Interval, 1);
 
-  if ( unit->hitpoints > 0 )                    // BUG - not actually a bug, but this function is inlined in a lot of places
-  {
-    task = unit->task;
-    unit->hitpoints = 0;
-    TSK_yield(task, TaskWait_Interval, 1);
-    unit->hitpoints = 0;
-    unit->mode = next_mode;
-    unit->destroyed = 1;
+  unit->hitpoints = 0;
+  unit->mode = next_mode;
+  unit->destroyed = 1;
+}
+
+//----- (00402E40) --------------------------------------------------------
+void __fastcall UNIT_on_destroy(Unit *unit, UnitMode next_mode)
+{
+  if(unit->hitpoints > 0) {
+    UNIT_destroy(unit, next_mode);
   }
 }
 
@@ -7747,36 +7947,25 @@ void __fastcall UNIT_apply_damage_ex(Unit *unit, Entity *attacker, UnitMode on_d
   int damage; // edi
   Unit *attacker_unit; // eax
   Task *task; // eax
-  int v7; // eax
 
-  if ( attacker )
-  {
-    damage = attacker->building_damage;
-    if ( unit->hitpoints > 0 )
-    {
-      if ( unit->stats->ai_threat_weight )
-      {
-        attacker_unit = attacker->projectile_ctx.attacker;
-        if ( attacker_unit )
-        {
-          if ( attacker_unit->unit_id == attacker->building_ctx._unused )
-          {
-            task = attacker_unit->task;
-            if ( task )
-              TSK_send_message(unit->task, TaskMessage_GainExperience, (void *)damage, task);
-          }
-        }
-      }
-      v7 = unit->hitpoints - damage;            // INLINED
-      unit->hitpoints = v7;
-      if ( v7 <= 0 )
-      {
-        TSK_yield(unit->task, TaskWait_Interval, 1);
-        unit->hitpoints = 0;
-        unit->mode = on_death;
-        unit->destroyed = 1;
+  if(nullptr == attacker) return;
+  if(unit->hitpoints <= 0) return;
+
+  damage = attacker->building_damage;
+  if(unit->stats->ai_threat_weight) {
+    attacker_unit = attacker->projectile_ctx.attacker;
+    if(attacker_unit) {
+      if(attacker_unit->unit_id == attacker->building_ctx._unused) {
+        task = attacker_unit->task;
+        if(task)
+          TSK_send_message(unit->task, TaskMessage_GainExperience, (void *)damage, task);
       }
     }
+  }
+
+  unit->hitpoints -= damage;
+  if(unit->hitpoints <= 0) {
+    UNIT_destroy(unit, on_death);
   }
 }
 
@@ -7833,44 +8022,35 @@ void __fastcall MSG_building_generic(
           }
           break;
         case TaskMessage_ReceiveDamage:
-          UNIT_apply_damage_ex(unit, (Entity *)payload, UINT_mode_building_exploding);
+          UNIT_apply_damage_ex(unit, payload, UINT_mode_building_exploding);
           UNIT_building_status_bar_update_health(unit);
           break;
         case TaskMessage_Sabotage:
-          UNIT_sabotage(unit, (Unit *)payload, UINT_mode_building_exploding);
+          UNIT_sabotage(unit, payload, UINT_mode_building_exploding);
           break;
         case TaskMessage_EscortBegin_or_SaveGame:
-          UNIT_on_escort_begin((Unit *)receiver->ctx, (Unit *)payload);
+          UNIT_on_escort_begin(receiver->ctx, payload);
           break;
         case TaskMessage_EscortEnd_or_LoadGame:
-          UNIT_on_escort_end((Unit *)receiver->ctx, (Unit *)payload);
+          UNIT_on_escort_end(receiver->ctx, payload);
           break;
         case TaskMessage_UnitSelected_or_UiLeftClick:
-          UNIT_on_selected((Unit *)receiver->ctx);
+          UNIT_on_selected(receiver->ctx);
           break;
         case TaskMessage_UnitDeselected_or_SaveLoadScrollDown_or_ShowNotificationBox:
-          UNIT_on_deselected((Unit *)receiver->ctx);
+          UNIT_on_deselected(receiver->ctx);
           break;
         case TaskMessage_ShowHint_or_SaveLoadScrollUp:
-          UNIT_show_hint((Unit *)receiver->ctx);
+          UNIT_show_hint(receiver->ctx);
           break;
         case TaskMessage_Destroy:
-          if ( unit->hitpoints > 0 )            // inlined
-          {
-            task = unit->task;
-            unit->hitpoints = 0;
-            TSK_yield(task, TaskWait_Interval, 1);
-            unit->hitpoints = 0;
-            unit->mode = UINT_mode_building_exploding;
-            unit->destroyed = 1;
-          }
+          UNIT_on_destroy(unit, UINT_mode_building_exploding);
           break;
         case TaskMessage_UnitReady:
-          unit->entity->is_collidable = 1;
           rally = unit->mobd_anchors.rally;
           entity = unit->entity;
-          v8 = entity->x + rally->x;
-          v9 = entity->y + rally->y;
+          v8 = ENT_X(entity) + rally->x;
+          v9 = ENT_Y(entity) + rally->y;
           player_num = unit->player_num;
           if ( player_num == g_player_num )
           {
@@ -7918,39 +8098,32 @@ void __cdecl SCHRAP_explosion_small_random_task(Task *task)
   entity = task->entity;
   entity->collider = &g_null_collision;
   SOUND_play_positional(entity, SoundId_Explosion, g_sfx_vol, 0);
-  entity->is_collidable = 1;
   v2 = GAME_rand_sync("C:\\k\\Scripts\\Building.cpp", 372);
   x = entity->x;
-  entity->is_collidable = 1;
-  entity->x = (v2 & 0x3FFF) - 0x2000 + x;
-  entity->y += (GAME_rand_sync("C:\\k\\Scripts\\Building.cpp", 373) & 0x3FFF) - 0x2000;
+  ENT_X(entity) = (v2 & 0x3FFF) - 0x2000 + x;
+  ENT_Y(entity) += (GAME_rand_sync("C:\\k\\Scripts\\Building.cpp", 373) & 0x3FFF) - 0x2000;
   ENT_anim_set(entity, 220);
   entity->z = 0x4000;
   TSK_yield(task, TaskWait_AnimCompletion, 0);
   SCHRAP_explosion_release();
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (004032F0) --------------------------------------------------------
 void __cdecl SCHRAP_explosion_big_delayed_task(Task *task)
 {
   Entity *entity; // esi
-  int v2; // ecx
 
   entity = task->entity;
   entity->collider = &g_null_collision;
   TSK_yield(task, TaskWait_Interval, 130);
   SOUND_play_positional(entity, SoundId_Explosion, g_sfx_vol, 0);
   ENT_anim_set(entity, 0);
-  v2 = entity->y + 2048;
-  entity->is_collidable = 1;
-  entity->y = v2;
+  ENT_Y(entity) += 2048;
   entity->anim_speed = 0x20000000;
   TSK_yield(task, TaskWait_AnimCompletion, 0);
   SCHRAP_explosion_release();
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00403380) --------------------------------------------------------
@@ -8000,10 +8173,9 @@ void __cdecl SCHRAP_explosion_building_task(Task *task)
   TSK_yield(task, TaskWait_Interval, v6);
   if ( v1 )
     v1->z = task->entity->z + 1024;
-  task->entity->is_collidable = 1;
   entity = task->entity;
-  x = entity->x;
-  y = entity->y;
+  x = ENT_X(entity);
+  y = ENT_Y(entity);
   v13 = y;
   v10 = x - 0x2000;
   v11 = x + 0x2000;
@@ -8029,24 +8201,16 @@ void __cdecl SCHRAP_explosion_building_task(Task *task)
     while ( v10 <= v11 );
   }
   SCHRAP_explosion_release();
-  ENT_remove(task->entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (004034B0) --------------------------------------------------------
-void __fastcall UNIT_mode_building_snap_to_grid(Unit *unit)
-{
-  Task *task; // eax
-
-  unit->entity->is_collidable = 1;              // INLINED macro
-  unit->entity->is_collidable = 1;
-  unit->entity->x = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  unit->entity->is_collidable = 1;
-  unit->entity->y = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+void __fastcall UNIT_mode_building_snap_to_grid(Unit *unit) {
+  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
+  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
   BOXD_building_claim_area(unit);
-  task = unit->task;
   unit->mode = UNIT_mode_building_idle_tick;
-  TSK_yield(task, TaskWait_Interval, 1);
+  TSK_yield(unit->task, TaskWait_Interval, 1);
 }
 
 //----- (00403540) --------------------------------------------------------
@@ -8065,19 +8229,12 @@ void __fastcall UNIT_mode_building_wait_for_capture(Unit *unit)
 }
 
 //----- (004035C0) --------------------------------------------------------
-void __fastcall UNIT_mode_building_snap_to_grid_neutal(Unit *unit)
-{
-  Task *task; // eax
-
-  unit->entity->is_collidable = 1;
-  unit->entity->is_collidable = 1;
-  unit->entity->x = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  unit->entity->is_collidable = 1;
-  unit->entity->y = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+void __fastcall UNIT_mode_building_snap_to_grid_neutal(Unit *unit) {
+  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
+  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
   BOXD_building_claim_area(unit);
-  task = unit->task;
   unit->mode = UNIT_mode_building_wait_for_capture;
-  TSK_yield(task, TaskWait_Interval, 1);
+  TSK_yield(unit->task, TaskWait_Interval, 1);
 }
 
 //----- (00403650) --------------------------------------------------------
@@ -8126,9 +8283,7 @@ void __fastcall UINT_mode_building_cleanup(Unit *unit)
       SOUND_play(SoundId_23, 0, g_sfx_vol, 16, nullptr);
   }
   BOXD_building_release_area(unit);
-  ENT_remove(unit->entity);
-  TSK_schedule_self_destruct(unit->task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00403780) --------------------------------------------------------
@@ -8164,9 +8319,7 @@ void __fastcall UINT_mode_building_exploding(Unit *unit)
   if ( turret )
   {
     turret->entity->ctx1 = nullptr;
-    ENT_remove(unit->turret->entity);
-    TSK_kill(unit->turret->task);
-    TSK_dealloc(unit->task, unit->turret);
+    TURRET_cleanup_kill(unit->task, unit->turret);
   }
   TSK_send_message(
     unit->task,
@@ -8387,23 +8540,13 @@ void LIMITS_cleanup()
 //----- (00403B70) --------------------------------------------------------
 int __fastcall OS_is_drive_cdrom(char drive_letter)
 {
-  Coroutine *v1; // et1
   UINT drive_type; // ecx
-  Coroutine *v3; // et1
   int result; // eax
   CHAR path[4]; // [esp+0h] [ebp-4h] BYREF
 
   strcpy(path, "#:\\");
   path[0] = drive_letter;
-  g_coroutine_eax = dword_464068;
-  v1 = g_coroutine_current;
-  if ( g_coroutine_list_head != v1 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = path;
-  drive_type = GetDriveTypeA(path);
-  g_coroutine_eax = drive_type;
-  v3 = g_coroutine_current;
-  if ( g_coroutine_list_head != v3 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_RUN_ON_MAIN_STACK(drive_type = GetDriveTypeA(path));
   switch ( drive_type )
   {
     case DRIVE_UNKNOWN:
@@ -8514,22 +8657,20 @@ void __fastcall MSG_clanhall_upgrades(
 //----- (00403E90) --------------------------------------------------------
 void __fastcall MSG_clanhall(Task *receiver, Task *sender, TaskMessageType message, void *payload)
 {
-  Unit *unit; // esi
-
-  unit = (Unit *)receiver->ctx;
+  Unit *unit = receiver->ctx;
   switch ( message )
   {
     case TaskMessage_ReceiveDamage:
-      UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_clanhall_on_death);
+      UNIT_apply_damage_ex(unit, payload, UNIT_mode_clanhall_on_death);
       UNIT_building_status_bar_update_health(unit);
       break;
     case TaskMessage_Sabotage:
       if ( unit->player_num == g_player_num )
-        UI_show_notification_box((Unit *)receiver->ctx, "Building Sabotaged");
-      UNIT_sabotage(unit, (Unit *)payload, UNIT_mode_clanhall_on_death);
+        UI_show_notification_box(receiver->ctx, "Building Sabotaged");
+      UNIT_sabotage(unit, payload, UNIT_mode_clanhall_on_death);
       break;
     case TaskMessage_Destroy:
-      UNIT_destroy((Unit *)receiver->ctx, UNIT_mode_clanhall_on_death);
+      UNIT_on_destroy(receiver->ctx, UNIT_mode_clanhall_on_death);
       break;
     case TaskMessage_UnitReady:
       if ( payload == (void *)UnitType_Mute_Wasp )
@@ -8542,11 +8683,10 @@ void __fastcall MSG_clanhall(Task *receiver, Task *sender, TaskMessageType messa
       }
       else
       {
-        unit->entity->is_collidable = 1;
         if ( ENT_create_by_unit_type(
                (UnitType)payload,
-               unit->mobd_anchors.rally->x + unit->entity->x,
-               unit->mobd_anchors.rally->y + unit->entity->y,
+               unit->mobd_anchors.rally->x + ENT_X(unit->entity),
+               unit->mobd_anchors.rally->y + ENT_Y(unit->entity),
                unit->player_num) )
         {
           if ( unit->player_num == g_player_num )
@@ -11360,7 +11500,8 @@ void __fastcall UNIT_mode_mobile_derrick_deploy_init(Unit *unit)
   Entity *entity; // edi
   Entity *v4; // eax
 
-  unit->entity->is_collidable = 1;
+  fixed x = ENT_X(unit->entity);
+  fixed y = ENT_Y(unit->entity);
   v2 = g_oil_patch_head;
   if ( g_oil_patch_head == (OilPatch *)&g_oil_patch_head )
   {
@@ -11373,8 +11514,8 @@ LABEL_7:
     while ( 1 )
     {
       v4 = v2->entity;
-      if ( ((entity->x ^ v4->x) & 0xFFFFE000) == 0
-        && ((entity->y ^ v4->y) & 0xFFFFE000) == 0
+      if ( ((x ^ v4->x) & 0xFFFFE000) == 0
+        && ((y ^ v4->y) & 0xFFFFE000) == 0
         && (v4->rn->flags & 0x40000000) == 0 )
       {
         break;
@@ -11428,7 +11569,6 @@ void __fastcall UNIT_mode_mobile_derrick_deploy(Unit *unit)
 void __fastcall UNIT_mode_mobile_base_despawn(Unit *unit)
 {
   Task *task; // eax
-  Entity *entity; // ecx
 
   task = unit->task;
   unit->destroyed = 1;
@@ -11445,11 +11585,7 @@ void __fastcall UNIT_mode_mobile_base_despawn(Unit *unit)
     TaskChannel_UnitEvents);
   BOXD_remove_unit(unit, unit->map_x, unit->map_y, unit->tile_position);
   unit->task->channel = TaskChannel_None;
-  entity = unit->entity;
-  unit->unit_id = 0;
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(unit->task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00406FD0) --------------------------------------------------------
@@ -11596,9 +11732,8 @@ void __cdecl UNIT_oil_patch_tick(Task *task)
   ENT_anim_set(entity, 0);
   cplc_meta = entity->cplc_meta;
   v3 = entity->y & 0xFFFFE000;
-  entity->x = (entity->x & 0xFFFFE000) + 4096;
-  entity->is_collidable = 1;
-  entity->y = v3 + 4096;
+  ENT_X(entity) = (entity->x & 0xFFFFE000) + 4096;
+  ENT_Y(entity) = v3 + 4096;
   if ( cplc_meta )
   {
     patch = g_oil_patch_free_head;
@@ -11621,8 +11756,7 @@ void __cdecl UNIT_oil_patch_tick(Task *task)
     patch = (OilPatch *)task->ctx;
   }
   y = entity->y;
-  entity->is_collidable = 1;
-  p_flags2 = &g_terrain[(entity->x >> 13) + g_map_num_tiles_x * (y >> 13)].flags2;
+  p_flags2 = &g_terrain[(ENT_X(entity) >> 13) + g_map_num_tiles_x * (ENT_Y(entity) >> 13)].flags2;
   *p_flags2 |= TerrainTileFlags2_OilPatch;
   TSK_yield(task, TaskWait_OilDepleted, 0);
   entity->rn->flags |= RenderNode_Skip;
@@ -11641,17 +11775,15 @@ void __cdecl UNIT_oil_patch_tick(Task *task)
 //----- (004072A0) --------------------------------------------------------
 void __fastcall MSG_prison(Task *receiver, Task *sender, TaskMessageType message, void *payload)
 {
-  Unit *unit; // esi
-
-  unit = (Unit *)receiver->ctx;
+  Unit *unit = receiver->ctx;
   if ( !unit->destroyed )
   {
     if ( message == TaskMessage_ReceiveDamage )
     {
       if ( g_current_lvl_id == LevelId_Surv_09_RescueTheGeneral )
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_prison_on_death_surv_09);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_prison_on_death_surv_09);
       else
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_prison_on_death);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_prison_on_death);
       UNIT_building_status_bar_update_health(unit);
     }
     else
@@ -11662,38 +11794,24 @@ void __fastcall MSG_prison(Task *receiver, Task *sender, TaskMessageType message
 }
 
 //----- (00407300) --------------------------------------------------------
-void __fastcall UNIT_mode_prison_snap_to_grid(Unit *unit)
-{
-  Task *task; // eax
-
-  unit->entity->is_collidable = 1;
-  unit->entity->is_collidable = 1;
-  unit->entity->x = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  unit->entity->is_collidable = 1;
-  unit->entity->y = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+void __fastcall UNIT_mode_prison_snap_to_grid(Unit *unit) {
+  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
+  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
   BOXD_building_claim_area(unit);
-  task = unit->task;
   unit->mode = (UnitMode)TURRET_mode_null;
-  TSK_yield(task, TaskWait_Interval, 1);
+  TSK_yield(unit->task, TaskWait_Interval, 1);
 }
 
 //----- (00407390) --------------------------------------------------------
-void __fastcall UNIT_mode_prison_init(Unit *unit)
-{
-  Task *task; // eax
-
+void __fastcall UNIT_mode_prison_init(Unit *unit) {
   ENT_anim_set_frame(unit->entity, unit->stats->mobd_lookup_offset_idle, g_angle_to_orientation[unit->orientation]);
-  task = unit->task;
   unit->mode = UNIT_mode_prison_snap_to_grid;
-  TSK_yield(task, TaskWait_Interval, 1);
+  TSK_yield(unit->task, TaskWait_Interval, 1);
 }
 
 //----- (004073D0) --------------------------------------------------------
-void __cdecl UNIT_prison_tick(Task *task)
-{
-  Unit *unit; // esi
-
-  unit = (Unit *)task->ctx;
+void __cdecl UNIT_prison_tick(Task *task) {
+  Unit *unit = task->ctx;
   if ( !unit )
   {
     unit = UNIT_create(task);
@@ -11715,10 +11833,9 @@ void __fastcall UNIT_mode_prison_release_next_prisoner(Unit *unit)
 
   if ( unit->cplc_spawn_param )
   {
-    unit->entity->is_collidable = 1;
     entity = unit->entity;
-    x = entity->x;
-    y = entity->y;
+    x = ENT_X(entity);
+    y = ENT_Y(entity);
     v4 = unit->cplc_spawn_param - 1;
     unit->cplc_spawn_param = v4;
     if ( g_current_lvl_id == LevelId_Surv_23 )
@@ -11750,26 +11867,17 @@ void __fastcall UNIT_mode_prison_on_death(Unit *unit)
 }
 
 //----- (004074E0) --------------------------------------------------------
-void __fastcall UNIT_mode_prison_release_general(Unit *unit)
-{
-  Task *task; // eax
-
-  unit->entity->is_collidable = 1;
-  ENT_create_by_unit_type(UnitType_Surv_General, unit->entity->x, unit->entity->y, g_player_num);
-  task = unit->task;
+void __fastcall UNIT_mode_prison_release_general(Unit *unit) {
+  ENT_create_by_unit_type(UnitType_Surv_General, ENT_X(unit->entity), ENT_Y(unit->entity), g_player_num);
   unit->mode = UINT_mode_building_cleanup;
-  TSK_yield(task, TaskWait_Interval, 10);
+  TSK_yield(unit->task, TaskWait_Interval, 10);
 }
 
 //----- (00407530) --------------------------------------------------------
-void __fastcall UNIT_mode_prison_on_death_surv_09(Unit *unit)
-{
-  Task *task; // eax
-
+void __fastcall UNIT_mode_prison_on_death_surv_09(Unit *unit) {
   UINT_mode_building_exploding(unit);
-  task = unit->task;
   unit->mode = UNIT_mode_prison_release_general;
-  TSK_yield(task, TaskWait_Interval, 80);
+  TSK_yield(unit->task, TaskWait_Interval, 80);
 }
 
 //----- (00407560) --------------------------------------------------------
@@ -11777,13 +11885,13 @@ void __fastcall MSG_tech_bunker(Task *receiver, Task *sender, TaskMessageType me
 {
   (void)sender;
 
-  Unit *ctx = (Unit *)receiver->ctx;
+  Unit *ctx = receiver->ctx;
   if ( !ctx->destroyed )
   {
     switch ( message )
     {
       case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(ctx, (Entity *)payload, UNIT_mode_tech_bunker_on_death);
+        UNIT_apply_damage_ex(ctx, payload, UNIT_mode_tech_bunker_on_death);
         UNIT_status_bar_update_frame(ctx);
         break;
       case TaskMessage_UnitSelected_or_UiLeftClick:
@@ -11809,13 +11917,11 @@ void __fastcall UNIT_mode_tech_bunker_idle_opened(Unit *unit)
 }
 
 //----- (00407630) --------------------------------------------------------
-void __fastcall UNIT_mode_tech_bunker_spawn_el_presidente(Unit *unit)
-{
-  unit->entity->is_collidable = 1;
+void __fastcall UNIT_mode_tech_bunker_spawn_el_presidente(Unit *unit) {
   ENT_create_by_unit_type(
     UnitType_Surv_ElPresidente,
-    unit->mobd_anchors.rally->x + unit->entity->x,
-    unit->entity->y + unit->mobd_anchors.rally->y - 1280,
+    ENT_X(unit->entity) + unit->mobd_anchors.rally->x,
+    ENT_Y(unit->entity) + unit->mobd_anchors.rally->y - 1280,
     g_player_num);
   unit->cplc_spawn_param = 0;
   unit->mode = UNIT_mode_tech_bunker_idle_opened;
@@ -11847,11 +11953,10 @@ void __fastcall UNIT_mode_tech_bunker_spawn(Unit *unit)
   spawn_type = unit->cplc_spawn_param;
   if ( spawn_type < 4 )                         // 0..3 - a high tech unit
   {
-    unit->entity->is_collidable = 1;
     ENT_create_by_unit_type(
       g_bunker_hightech_unit_choice[unit->cplc_spawn_param],
-      unit->entity->x + unit->mobd_anchors.rally->x,
-      unit->entity->y + unit->mobd_anchors.rally->y,
+      ENT_X(unit->entity) + unit->mobd_anchors.rally->x,
+      ENT_Y(unit->entity) + unit->mobd_anchors.rally->y,
       player_num);
     goto LABEL_23;
   }
@@ -11861,26 +11966,23 @@ void __fastcall UNIT_mode_tech_bunker_spawn(Unit *unit)
     {
       if ( g_player_num == 1 )
       {
-        unit->entity->is_collidable = 1;
 LABEL_16:
         ENT_create_by_unit_type(
           UnitType_Surv_Tanker,
-          unit->entity->x + unit->mobd_anchors.rally->x,
-          unit->entity->y + unit->mobd_anchors.rally->y,
+          ENT_X(unit->entity) + unit->mobd_anchors.rally->x,
+          ENT_Y(unit->entity) + unit->mobd_anchors.rally->y,
           player_num);
         goto LABEL_23;
       }
     }
     else if ( g_netz_players[unit->player_num].faction == NetzFaction_Surv )
     {
-      unit->entity->is_collidable = 1;
       goto LABEL_16;
     }
-    unit->entity->is_collidable = 1;
     ENT_create_by_unit_type(
       UnitType_Mute_Tanker,
-      unit->entity->x + unit->mobd_anchors.rally->x,
-      unit->entity->y + unit->mobd_anchors.rally->y,
+      ENT_X(unit->entity) + unit->mobd_anchors.rally->x,
+      ENT_Y(unit->entity) + unit->mobd_anchors.rally->y,
       player_num);
   }
   else
@@ -11931,31 +12033,26 @@ Unit *__fastcall UNIT_find_any_in_radius(Unit *unit, int radius)
   Entity *v5; // ecx
   int v6; // esi
   bool v7; // cc
-  Entity *v8; // esi
   int dx; // ecx
   int v10; // esi
   int dy; // edi
   int y; // [esp+10h] [ebp-4h]
 
-  unit->entity->is_collidable = 1;
   entity = unit->entity;
   result = g_unit_list_head;
-  x = entity->x;
-  y = entity->y;
-  if ( g_unit_list_head == (Unit *)&g_unit_list_head )
+  x = ENT_X(entity);
+  y = ENT_Y(entity);
+  if ( g_unit_list_head == END(g_unit_list_head))
     return nullptr;
   while ( 1 )
   {
     if ( !result->destroyed && result->player_num )
     {
-      result->entity->is_collidable = 1;
       v5 = result->entity;
-      v6 = v5->x;
-      v5->is_collidable = 1;
+      v6 = ENT_X(v5);
       v7 = v6 - x <= 0;
-      v8 = result->entity;
-      dx = v7 ? x - v8->x : v8->x - x;
-      v10 = v8->y;
+      dx = v7 ? x - v6 : v6 - x;
+      v10 = ENT_Y(v5);
       dy = v10 - y;
       if ( v10 - y <= 0 )
         dy = y - v10;
@@ -11963,7 +12060,7 @@ Unit *__fastcall UNIT_find_any_in_radius(Unit *unit, int radius)
         break;
     }
     result = result->next;
-    if ( result == (Unit *)&g_unit_list_head )
+    if ( result == END(g_unit_list_head))
       return nullptr;
   }
   return result;
@@ -12042,11 +12139,8 @@ void __fastcall UNIT_mode_tech_bunker_sleep_until_activated_surv_18(Unit *unit)
 //----- (00407A90) --------------------------------------------------------
 void __fastcall UNIT_mode_tech_bunker_snap_to_grid(Unit *unit)
 {
-  unit->entity->is_collidable = 1;
-  unit->entity->is_collidable = 1;
-  unit->entity->x = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  unit->entity->is_collidable = 1;
-  unit->entity->y = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
+  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
   BOXD_building_claim_area(unit);
   if ( g_current_lvl_id == LevelId_Surv_18 )
     unit->mode = UNIT_mode_tech_bunker_sleep_until_activated_surv_18;
@@ -12093,8 +12187,7 @@ void __cdecl UNIT_tech_bunker_tick(Task *task)
       v2->mode(v2);
       return;
     }
-    ENT_remove(task->entity);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_with_entity(task);
   }
   unit->mode(unit);
 }
@@ -12104,9 +12197,7 @@ void __fastcall UNIT_mode_tech_bunker_cleanup(Unit *unit)
 {
   SOUND_play(SoundId_23, 0, g_sfx_vol, 16, nullptr);
   BOXD_building_release_area(unit);
-  ENT_remove(unit->entity);
-  TSK_schedule_self_destruct(unit->task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00407C60) --------------------------------------------------------
@@ -12150,8 +12241,7 @@ void __fastcall UNIT_mode_tech_bunker_on_death(Unit *unit)
 //----- (00407D10) --------------------------------------------------------
 void __fastcall UNIT_mode_hut_cleanup(Unit *unit)
 {
-  TSK_schedule_self_destruct(unit->task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00407D30) --------------------------------------------------------
@@ -12191,7 +12281,7 @@ void __fastcall MSG_hut(Task *receiver, Task *sender, TaskMessageType message, v
     switch ( message )
     {
       case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_hut_on_death);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_hut_on_death);
         UNIT_status_bar_update_frame(unit);
         break;
       case TaskMessage_UnitSelected_or_UiLeftClick:
@@ -12210,19 +12300,12 @@ void __fastcall MSG_hut(Task *receiver, Task *sender, TaskMessageType message, v
 }
 
 //----- (00407E70) --------------------------------------------------------
-void __fastcall UNIT_mode_hut_snap_to_grid(Unit *unit)
-{
-  Task *task; // eax
-
-  unit->entity->is_collidable = 1;
-  unit->entity->is_collidable = 1;
-  unit->entity->x = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  unit->entity->is_collidable = 1;
-  unit->entity->y = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+void __fastcall UNIT_mode_hut_snap_to_grid(Unit *unit) {
+  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
+  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
   BOXD_building_claim_area(unit);
-  task = unit->task;
   unit->mode = UNIT_mode_hut_idle;
-  TSK_yield(task, TaskWait_Interval, 1);
+  TSK_yield(unit->task, TaskWait_Interval, 1);
 }
 
 //----- (00407F00) --------------------------------------------------------
@@ -12294,11 +12377,11 @@ void __fastcall MSG_drillrig(Task *receiver, Task *sender, TaskMessageType messa
         }
         break;
       case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_drillrig_on_death);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_drillrig_on_death);
         UNIT_building_status_bar_update_health(unit);
         break;
       case TaskMessage_Destroy:
-        UNIT_destroy((Unit *)receiver->ctx, UNIT_mode_drillrig_on_death);
+        UNIT_on_destroy(receiver->ctx, UNIT_mode_drillrig_on_death);
         break;
       default:
         if ( message != TaskMessage_AttackOrder_or_QuitGame )
@@ -12326,18 +12409,16 @@ void __cdecl UNIT_drillrig_tick(Task *task)
       SHROUD_reveal(unit);
       unit->task->channel = TaskChannel_Drillrig;
       UNIT_building_init(unit, 2, nullptr, nullptr);
-      unit->entity->is_collidable = 1;
-      patch = OIL_find_nearest_patch(unit->entity->x, unit->entity->y);
+      patch = OIL_find_nearest_patch(ENT_X(unit->entity), ENT_Y(unit->entity));
       if ( patch )
       {
         unit->entity->x = (patch->entity->x & 0xFFFFE000) + 0x1000;
         unit->entity->y = (patch->entity->y & 0xFFFFE000) + 0x1000;
       }
       unit->_u1.oil_patch = patch;
-      unit->entity->is_collidable = 1;
 
-      BuildingState *state = (BuildingState *)unit->state;
-      state->ctx = OIL_find_patch_at_tile(unit->entity->x, unit->entity->y);
+      BuildingState *state = unit->state;
+      state->ctx = OIL_find_patch_at_tile(ENT_X(unit->entity), ENT_Y(unit->entity));
       if ( unit->entity->cplc_spawn_params )
         unit->mode = UNIT_mode_drillrig_place_without_deployment;// if pre-placed -> skip deployment animation
       else
@@ -12398,8 +12479,7 @@ void __fastcall UNIT_mode_drillrig_adjust_to_oil_patch_position(Unit *unit)
 
   if ( !unit->_u1.oil_patch )
   {
-    unit->entity->is_collidable = 1;
-    nearest_patch = OIL_find_nearest_patch(unit->entity->x, unit->entity->y);
+    nearest_patch = OIL_find_nearest_patch(ENT_X(unit->entity), ENT_Y(unit->entity));
     if ( nearest_patch )
     {
       // TODO: Magic numbers 0xFFFFE000, 0x1000 repeated across drillrig code. Extract as constants.
@@ -12420,13 +12500,12 @@ void __fastcall UNIT_mode_drillrig_adjust_to_oil_patch_position(Unit *unit)
     unit->mode = UNIT_mode_building_idle_tick;
     BOXD_building_claim_area(unit);
   }
-  unit->entity->is_collidable = 1;
 
-  OilPatch *patch = OIL_find_patch_at_tile(unit->entity->x, unit->entity->y);
+  OilPatch *patch = OIL_find_patch_at_tile(ENT_X(unit->entity), ENT_Y(unit->entity));
   patch->drillrig = unit;
   patch->drillrig_unit_id = unit->unit_id;
 
-  BuildingState *state = (BuildingState *)unit->state;
+  BuildingState *state = unit->state;
   state->ctx = patch;
 
   UNIT_mode_building_idle_tick(unit);
@@ -12655,8 +12734,7 @@ void __fastcall SOUND_play_positional(Entity *entity, SoundId sound_id, int volu
   v7 = viewport->clip_w << 7;
   if ( v7 < 256 )
     v7 = 256;
-  x = entity->x;
-  entity->is_collidable = 1;
+  x = ENT_X(entity);
   v9 = x - g_mapd_camera.x - v7;
   if ( v9 <= v7 )
   {
@@ -12886,9 +12964,8 @@ void __fastcall MSG_ai_controller(
                 else
                   building_replacement_free_head->unit_type = UnitType_Surv_MobileDerrick;
                 p_drillrig_replacement_head = &ai->drillrig_replacement_head;
-                payload->entity->is_collidable = 1;
-                building_replacement_free_head->unit_x = payload->entity->x;
-                y = payload->entity->y;
+                building_replacement_free_head->unit_x = ENT_X(payload->entity);
+                y = ENT_Y(payload->entity);
                 building_replacement_free_head->strategic_value = 0;
                 building_replacement_free_head->unit_y = y;
                 building_replacement_free_head->next = *p_drillrig_replacement_head;
@@ -13417,24 +13494,20 @@ void __fastcall AI_update_base_area(AiController *ai, Entity *entity)
   int y; // eax
   int v5; // edx
 
-  x = entity->x;
-  entity->is_collidable = 1;
+  x = ENT_X(entity);
   if ( x < ai->base_area_min_x )
   {
-    entity->is_collidable = 1;
     ai->base_area_min_x = x;
   }
-  v3 = entity->x;
-  entity->is_collidable = 1;
+  v3 = ENT_X(entity);
   if ( v3 > ai->base_area_max_x )
   {
-    entity->is_collidable = 1;
     ai->base_area_max_x = v3;
   }
-  y = entity->y;
+  y = ENT_Y(entity);
   if ( y < ai->base_area_min_y )
     ai->base_area_min_y = y;
-  v5 = entity->y;
+  v5 = ENT_Y(entity);
   if ( v5 > ai->base_area_max_y )
     ai->base_area_max_y = v5;
 }
@@ -13458,9 +13531,8 @@ void __fastcall AI_enqueue_building_replacement(AiController *ai, Unit *unit)
   if ( n )
   {
     n->unit_type = unit->type;
-    unit->entity->is_collidable = 1;
-    n->unit_x = unit->entity->x;
-    n->unit_y = unit->entity->y;
+    n->unit_x = ENT_X(unit->entity);
+    n->unit_y = ENT_Y(unit->entity);
     n->grid_anchor_x = unit->mobd_anchors.grid->x;
     n->grid_anchor_y = unit->mobd_anchors.grid->y;
     n->strategic_value = unit->stats->ai_strategic_value;
@@ -13520,12 +13592,10 @@ void __fastcall AI_pair_drillrigs_with_powerplants(AiController *ai)
           unit = next->unit;
           if ( !unit->destroyed )
           {
-            unit->entity->is_collidable = 1;
-            drillrig_head->unit->entity->is_collidable = 1;
             entity = next->unit->entity;
             v8 = drillrig_head->unit->entity;
-            v9 = entity->x - v8->x;
-            v10 = entity->y - v8->y;
+            v9 = ENT_X(entity) - ENT_X(v8);
+            v10 = ENT_Y(entity) - ENT_Y(v8);
             if ( v9 < 0 )
               v9 = -v9;
             if ( v10 < 0 )
@@ -13803,9 +13873,8 @@ LABEL_25:
     guard_squad->center_x = 0;
     do
     {
-      attackers_head->unit->entity->is_collidable = 1;
-      guard_squad->center_x += attackers_head->unit->entity->x;
-      guard_squad->center_y += attackers_head->unit->entity->y;
+      guard_squad->center_x += ENT_X(attackers_head->unit->entity);
+      guard_squad->center_y += ENT_Y(attackers_head->unit->entity);
       attackers_head = attackers_head->next;
       ++v2;
     }
@@ -13815,8 +13884,7 @@ LABEL_25:
     v2 = 0;
     guard_squad->center_y = v9;
 LABEL_20:
-    drillrig_head->unit->entity->is_collidable = 1;
-    threat_in_area = AI_get_threat_in_area(ai, 81920, drillrig_head->unit->entity->x, drillrig_head->unit->entity->y);
+    threat_in_area = AI_get_threat_in_area(ai, 81920, ENT_X(drillrig_head->unit->entity), ENT_Y(drillrig_head->unit->entity));
     drillrig_head->local_threat = threat_in_area;
     if ( !threat_in_area )
     {
@@ -14156,7 +14224,6 @@ LABEL_125:
       {
         do
         {
-          v68->unit->entity->is_collidable = 1;
           entity = v68->unit->entity;
           v72 = entity->x - ai->rally_x;
           v73 = entity->y - ai->rally_y;
@@ -14168,9 +14235,8 @@ LABEL_125:
           if ( v74 > v67 )
           {
             v67 = v74;
-            entity->is_collidable = 1;
-            attack_squad_head->center_x = v68->unit->entity->x;
-            attack_squad_head->center_y = v68->unit->entity->y;
+            attack_squad_head->center_x = ENT_X(v68->unit->entity);
+            attack_squad_head->center_y = ENT_Y(v68->unit->entity);
           }
           v68 = v68->next;
         }
@@ -14207,10 +14273,9 @@ LABEL_125:
     {
       do
       {
-        v77->unit->entity->is_collidable = 1;
         v81 = v77->unit->entity;
-        v82 = v81->x - ai->rally_x;
-        v83 = v81->y - ai->rally_y;
+        v82 = ENT_X(v81) - ai->rally_x;
+        v83 = ENT_Y(v81) - ai->rally_y;
         if ( v82 < 0 )
           v82 = ai->rally_x - v81->x;
         if ( v83 < 0 )
@@ -14219,9 +14284,8 @@ LABEL_125:
         if ( v84 > v78 )
         {
           v78 = v84;
-          v81->is_collidable = 1;
-          n->center_x = v77->unit->entity->x;
-          n->center_y = v77->unit->entity->y;
+          n->center_x = ENT_X(v77->unit->entity);
+          n->center_y = ENT_Y(v77->unit->entity);
         }
         v77 = v77->next;
       }
@@ -14259,9 +14323,8 @@ LABEL_125:
         v86->center_y = 0;
         for (v92 = *p_attackers_head; v92 != END(v86->attackers_head); v92 = v92->next)
         {
-          v92->unit->entity->is_collidable = 1;
-          v86->center_x += v92->unit->entity->x;
-          v86->center_y += v92->unit->entity->y;
+          v86->center_x += ENT_X(v92->unit->entity);
+          v86->center_y += ENT_Y(v92->unit->entity);
           ++jj;
         }
         v93 = v86->center_x / jj;
@@ -14291,9 +14354,8 @@ LABEL_125:
       staging_squad->total_squad_threat = 0;
       do
       {
-        v97->unit->entity->is_collidable = 1;
-        staging_squad->center_x += v97->unit->entity->x;
-        staging_squad->center_y += v97->unit->entity->y;
+        staging_squad->center_x += ENT_X(v97->unit->entity);
+        staging_squad->center_y += ENT_Y(v97->unit->entity);
         staging_squad->total_squad_threat += v97->unit->stats->ai_threat_weight;
         v97 = v97->next;
         ++v98;
@@ -14505,12 +14567,11 @@ LABEL_227:
         unassigned_attacker_head = v108;
       }
     }
-    for ( i4 = ai->convoy_escort_head; i4 != (AiAttackerNode *)&ai->convoy_escort_head; i4 = i4->next )
+    for ( i4 = ai->convoy_escort_head; i4 != END(ai->convoy_escort_head); i4 = i4->next )
     {
-      i4->unit->entity->is_collidable = 1;
       v110 = i4->unit->entity;
-      v111 = v110->x - ai->rally_x;
-      v112 = v110->y - ai->rally_y;
+      v111 = ENT_X(v110) - ai->rally_x;
+      v112 = ENT_Y(v110) - ai->rally_y;
       if ( v111 < 0 )
         v111 = -v111;
       if ( v112 < 0 )
@@ -14983,11 +15044,10 @@ void __fastcall AI_squad_attack(AiController *ai, AiSquadNode *squad)
       unit = i->unit;
       if ( !unit->destroyed && unit->stats->ai_strategic_value )
       {
-        unit->entity->is_collidable = 1;
         v10 = i->unit;
         entity = v10->entity;
-        dx = entity->x - v18->center_x;
-        dy = entity->y - v18->center_y;
+        dx = ENT_X(entity) - v18->center_x;
+        dy = ENT_Y(entity) - v18->center_y;
         if ( dx < 0 )
           dx = v18->center_x - entity->x;
         if ( dy < 0 )
@@ -15061,11 +15121,10 @@ int __fastcall AI_get_threat_in_area(AiController *ai, int radius, int x, int y)
       unit = i->unit;
       if ( !unit->destroyed && unit->stats->ai_threat_weight )
       {
-        unit->entity->is_collidable = 1;
         v7 = i->unit;
         entity = v7->entity;
-        dx = entity->x - x;
-        dy = entity->y - y;
+        dx = ENT_X(entity) - x;
+        dy = ENT_Y(entity) - y;
         if ( dx < 0 )
           dx = -dx;
         if ( dy < 0 )
@@ -15115,11 +15174,10 @@ void __fastcall AI_eval_base_and_patrol_threats(AiController *ai)
         unit = i->unit;
         if ( !unit->destroyed )
         {
-          unit->entity->is_collidable = 1;
           v5 = i->unit;
           entity = v5->entity;
-          x = entity->x;
-          y = entity->y;
+          x = ENT_X(entity);
+          y = ENT_Y(entity);
           if ( x > ai->base_area_min_x - 0xC000
             && x < ai->base_area_max_x + 0xC000
             && y > ai->base_area_min_y - 0xC000
@@ -15150,11 +15208,10 @@ void __fastcall AI_eval_base_and_patrol_threats(AiController *ai)
         v12 = j->unit;
         if ( !v12->destroyed && v12->stats->ai_threat_weight )
         {
-          v12->entity->is_collidable = 1;
           v13 = j->unit;
           v14 = v13->entity;
-          dx = v14->x - patrol_wp->x;
-          dy = v14->y - patrol_wp->y;
+          dx = ENT_X(v14) - patrol_wp->x;
+          dy = ENT_Y(v14) - patrol_wp->y;
           if ( dx < 0 )
             dx = -dx;
           if ( dy < 0 )
@@ -15289,14 +15346,12 @@ BOOL __fastcall AI_find_nuke_target(AiController *ai, UnitType type, int *out_x,
     {
       while ( 1 )
       {
-        enemy_head->unit->entity->is_collidable = 1;
         entity = enemy_head->unit->entity;
         x = entity->x;
-        entity->is_collidable = 1;
         v11 = enemy_head->unit->entity;
         v12 = (x - 0x2000) / 0x4000 - 1;
-        v13 = v11->x;
-        y = v11->y;
+        v13 = ENT_X(v11);
+        y = ENT_Y(v11);
         v15 = (v13 + 0x2000) / 0x4000 + 1;
         v16 = (y - 0x2000) / 0x4000 - 1;
         v17 = (y + 0x2000) / 0x4000 + 1;
@@ -16891,14 +16946,11 @@ LABEL_9:
 }
 
 //----- (0040D860) --------------------------------------------------------
-BOOL __fastcall ENT_is_in_radius(Entity *a, Entity *b, int radius)
-{
-  int x; // esi
-
-  b->is_collidable = 1;
-  x = a->x;
-  a->is_collidable = 1;
-  return ((b->y - a->y) >> 8) * ((b->y - a->y) >> 8) + ((b->x - x) >> 8) * ((b->x - x) >> 8) <= radius * radius;
+BOOL __fastcall ENT_is_in_radius(Entity *a, Entity *b, int radius) {
+  return (
+    (ENT_Y(b) - ENT_Y(a)) >> 8) * ((ENT_Y(b) - ENT_Y(a)) >> 8)
+    + ((ENT_X(b) - ENT_X(a)) >> 8) * ((ENT_X(b) - ENT_X(a)) >> 8
+  ) <= radius * radius;
 }
 
 //----- (0040D8B0) --------------------------------------------------------
@@ -16981,11 +17033,10 @@ void __fastcall ENT_apply_aoe_damage(Entity *entity, int radius)
             if ( *units )
             {
               v14 = (*units)->entity;
-              v14->is_collidable = 1;
               x = entity->x;
-              entity->is_collidable = 1;
-              v16 = (v14->y - entity->y) >> 8;
-              if ( v16 * v16 + ((v14->x - x) >> 8) * ((v14->x - x) >> 8) <= v2 * v2 )
+              v16 = (ENT_Y(v14) - ENT_Y(entity)) >> 8;
+              if(ENT_is_in_radius(entity, v14, v2))
+              //if ( v16 * v16 + ((ENT_X(v14) - ENT_X(entity)) >> 8) * ((ENT_X(v14) - ENT_X(entity)) >> 8) <= v2 * v2 )
               {
                 v17 = *units;
                 if ( !(*units)->destroyed )
@@ -18678,10 +18729,8 @@ Sidebar *__fastcall UI_sidebar_create(
   if ( !entity )
     v5->entity = ENT_create(MobdId_Sidebar, v5->task, nullptr);
   v5->entity->rn->transform = (RenderTransform)REND_transform_ui;
-  v5->entity->is_collidable = 1;
-  v5->entity->x = v5->x;
-  v5->entity->is_collidable = 1;
-  v5->entity->y = v5->y;
+  ENT_X(v5->entity) = v5->x;
+  ENT_Y(v5->entity) = v5->y;
   v5->entity->z = 1;
   v5->entity->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[g_player_num]];
   v5->entity->rn->flags |= RenderNode_PaletteOverride;
@@ -19171,9 +19220,8 @@ LABEL_23:
             }
             v14 = v12->y + 6656;
             v15 = v12->z + 2;
-            v12->x += 2048;
-            v12->is_collidable = 1;
-            v12->y = v14;
+            ENT_X(v12) += 2048;
+            ENT_Y(v12) = v14;
             v12->z = v15;
             v12->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[g_player_num]];
             v12->rn->flags |= RenderNode_PaletteOverride;
@@ -19185,8 +19233,7 @@ LABEL_23:
             ENT_anim_set_frame(v9, 2312, frame);
             v16 = v9->x + 256;
             v17 = v9->z + 2;
-            v9->is_collidable = 1;
-            v9->x = v16;
+            ENT_X(v9) = v16;
             v9->z = v17;
             v9->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[g_player_num]];
             v9->rn->flags |= RenderNode_PaletteOverride;
@@ -19479,18 +19526,16 @@ SidebarButton *__fastcall UI_sidebar_button_create(
     v8->next = (SidebarButton *)&sidebar->button_list_head;
     sidebar->button_list_tail->next = v8;
     sidebar->button_list_tail = v8;
-    v8->entity->is_collidable = 1;
-    v8->entity->x = sidebar->x + sidebar->num_buttons * sidebar->h_spacing;
-    v8->entity->is_collidable = 1;
     if ( task_ctx == (void *)-11 )
       v15 = 13 * sidebar->v_spacing;
     else
       v15 = sidebar->num_buttons * sidebar->v_spacing;
-    v8->entity->y = sidebar->y + v15;
-    ++sidebar->num_buttons;
+    ENT_X(v8->entity) = sidebar->x + sidebar->num_buttons * sidebar->h_spacing;
+    ENT_Y(v8->entity) = sidebar->y + v15;
     v8->entity->z = 1;
     v8->entity->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[g_player_num]];
     v8->entity->rn->flags |= RenderNode_PaletteOverride;
+    ++sidebar->num_buttons;
   }
   return v8;
 }
@@ -20109,6 +20154,7 @@ void __fastcall UNIT_drillrig_status_bar_update_oil(Unit *unit)
 }
 
 //----- (00410BE0) --------------------------------------------------------
+__attribute__((no_sanitize("alignment")))
 void __fastcall UNIT_building_status_bar_full_redraw(Unit *unit)
 {
   BuildingState *state = unit->state;
@@ -21571,6 +21617,8 @@ void __cdecl UNIT_infantry_tick(Task *task)
       DBG_on_invalid_unit_tick(1);
     unit->mode(unit);
     entity = unit->entity;
+    if ( !entity )                              // mode tick may have removed the unit (nulls entity)
+      return;
     x = entity->x;
     if ( x < 0 || x >= g_map_num_tiles_x << 13 || (y = entity->y, y < 0) || y >= g_map_num_tiles_y << 13 )
     {
@@ -25110,7 +25158,6 @@ void __fastcall UNIT_obstacle_scan_begin(Unit *unit)
   unit->path_scan_max_iterations = 2 * v14;
   unit->mode = UNIT_mode_obstacle_scan_tick;
 }
-// 4175E1: variable 'v8' is possibly undefined
 
 //----- (00417670) --------------------------------------------------------
 void __fastcall UNIT_mode_obstacle_scan_tick(Unit *unit)
@@ -25898,11 +25945,11 @@ LABEL_23:
     task->ctx = unit->locked_target;
     v9->projectile_ctx.attacker = unit;
     v9->projectile_ctx.attacker_unit_id = unit->unit_id;
-    v9->infantry_damage = LOWORD(projectile->damage_to_infantry)
+    v9->infantry_damage = projectile->damage_to_infantry
                         + ((projectile->damage_to_infantry * g_veterancy_damage_mod[unit->veterancy]) >> 8);
-    v9->vehicle_damage = LOWORD(projectile->damage_to_vehicles)
+    v9->vehicle_damage = projectile->damage_to_vehicles
                        + ((projectile->damage_to_vehicles * g_veterancy_damage_mod[unit->veterancy]) >> 8);
-    v9->building_damage = LOWORD(projectile->damage_to_buildings)
+    v9->building_damage = projectile->damage_to_buildings
                         + ((projectile->damage_to_buildings * g_veterancy_damage_mod[unit->veterancy]) >> 8);
     TSK_send_message(unit->task, TaskMessage_Attacked, unit, unit->locked_target->task);
     TSK_yield(
@@ -26158,9 +26205,7 @@ void __fastcall UNIT_mode_technician_entering_building(Unit *unit)
     task->channel = TaskChannel_None;
     unit->unit_id = 0;
 LABEL_27:
-    ENT_remove(unit->entity);
-    TSK_schedule_self_destruct(unit->task);
-    UNIT_remove(unit);
+    UNIT_remove_task_and_entity(unit);
     return;
   }
   entity = unit->entity;
@@ -26280,9 +26325,7 @@ void __fastcall UNIT_mode_saboteur_entering_building(Unit *unit)
     v13->channel = TaskChannel_None;
     unit->unit_id = 0;
   }
-  ENT_remove(unit->entity);
-  TSK_schedule_self_destruct(unit->task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00418E90) --------------------------------------------------------
@@ -26526,9 +26569,8 @@ void __fastcall UNIT_tanker_dock_init(Unit *unit)
     dock_point = current_destination->mobd_anchors.dock_point;
     x = dock_point->x;
     y = dock_point->y;
-    current_destination->entity->is_collidable = 1;
     entity = state->current_destination->entity;
-    v8 = y + entity->y;
+    v8 = y + ENT_Y(entity);
     v9 = unit->entity;
     v10 = v8 >> 13;
     if ( ((v9->x ^ (x + entity->x)) & 0xFFFFE000) == 0 && v9->y >> 13 == v10 )
@@ -26664,9 +26706,7 @@ void __fastcall UNIT_mode_death_anim(Unit *unit)
   turret = unit->turret;
   if ( turret )
   {
-    ENT_remove(turret->entity);
-    TSK_kill(unit->turret->task);
-    TSK_dealloc(unit->task, unit->turret);
+    TURRET_cleanup_kill(unit->task, unit->turret);
     unit->turret = nullptr;
   }
   TSK_broadcast_message(
@@ -26728,9 +26768,7 @@ LABEL_15:
 void __fastcall UNIT_mode_cleanup(Unit *unit)
 {
   BOXD_remove_unit(unit, unit->map_x, unit->map_y, unit->tile_position);
-  ENT_remove(unit->entity);
-  TSK_schedule_self_destruct(unit->task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00419760) --------------------------------------------------------
@@ -27312,11 +27350,7 @@ void __fastcall UNIT_on_repair_order(Unit *unit, Unit *target)
 }
 
 //----- (0041A470) --------------------------------------------------------
-void __fastcall UNIT_on_repair_bay_assigned(Unit *unit, Unit *a2)
-{
-  int y; // edx
-  int v5; // edi
-
+void __fastcall UNIT_on_repair_bay_assigned(Unit *unit, Unit *a2) {
   TSK_yield(unit->task, TaskWait_Interval, 1);
   unit->order = UnitOrder_RepairBayDock;
   unit->order_target = a2;
@@ -27324,12 +27358,9 @@ void __fastcall UNIT_on_repair_bay_assigned(Unit *unit, Unit *a2)
   unit->opportunity_target = nullptr;
   unit->multi_purpose_field_3 = 600;
   unit->mode_arrive = UNIT_mode_repairbay_dock_init;
-  a2->entity->is_collidable = 1;
-  unit->order_target_x = a2->entity->x + a2->mobd_anchors.dock_point->x;
-  y = a2->mobd_anchors.dock_point->y;
-  v5 = a2->entity->y;
+  unit->order_target_x = ENT_X(a2->entity) + a2->mobd_anchors.dock_point->x;
+  unit->order_target_y = ENT_Y(a2->entity) + a2->mobd_anchors.dock_point->y;
   unit->locked_target = nullptr;
-  unit->order_target_y = v5 + y;
   BOXD_pathing_set_friendly_mask(unit, 1);
   unit->mode = UNIT_mode_build_path;
 }
@@ -29584,7 +29615,7 @@ OilPatchSaveStruct *__fastcall SAVE_pack_oil(size_t *out_buf_size)
   }
   else
   {
-    g_save_last_error = "memory";
+    strcpy(g_save_last_error, "memory");
   }
   return result;
 }
@@ -29777,7 +29808,7 @@ LABEL_9:
   task = (__int32 *)unit->task;
   if ( task[6] != 1 )
   {
-    g_save_last_error = "task is wrong type";
+    strcpy(g_save_last_error, "task is wrong type");
     return 0;
   }
   v11 = 0;
@@ -29836,7 +29867,7 @@ LABEL_9:
     v21 = turret->task;
     if ( turret->task->kind != TaskKind_Callback )
     {
-      g_save_last_error = "task is wrong type";
+      strcpy(g_save_last_error, "task is wrong type");
       return 0;
     }
     data->turret_task_channel = v21->channel;
@@ -29919,7 +29950,7 @@ LABEL_9:
     {
       sprintf(Buffer, "unit %d %s", unit->type, "unknown turret mode");
 LABEL_224:
-      g_save_last_error = Buffer;
+      strcpy(g_save_last_error, Buffer);
       return 0;
     }
     data->turret_mobd_lookup_id = v127->current_mobd_frame;
@@ -30439,7 +30470,7 @@ LABEL_206:
         v118 = *(__int32 **)(v113 + 28);
         if ( v118[6] != 1 )
         {
-          g_save_last_error = "task is wrong type";
+          strcpy(g_save_last_error, "task is wrong type");
           sprintf(Buffer, "unit %d %s", unit->type, "bad upgrade task");
           goto LABEL_224;
         }
@@ -30539,22 +30570,6 @@ static Unit *SAVE_find_unit_by_id(int unit_id)
     }
   }
   return nullptr;
-}
-
-// Rescans the unit's current anim frame for the grid anchor (point id==3) and
-// caches it in mobd_anchors.grid. Anchors aren't serialized, so they are
-// recomputed on load — same INLINED point-list walk used at unit spawn.
-static void SAVE_restore_grid_anchor(Unit *unit)
-{
-  MobdPoint *pt = (MobdPoint *)unit->entity->anim_current_frame->points[0].id;
-  if(pt) {
-    for(int point_id = pt->id; point_id != -1; ++pt) {
-      if(point_id == 3) {
-        unit->mobd_anchors.grid = pt;
-      }
-      point_id = pt[1].id;
-    }
-  }
 }
 
 // Resolves a 1-based script-handler id to its function pointer (as void*), or
@@ -30817,8 +30832,7 @@ BOOL __fastcall SAVE_unpack_unit(Unit *unit, const UnitSaveStruct *data)
           state->checkpoint = saved->checkpoint;
           UNIT_rendering_default(unit);
 LABEL_131:
-          unit->entity->is_collidable = 1;
-          BOXD_place_unit_world_coords(unit, unit->entity->x, unit->entity->y, UnitPosition_Slot0);
+          BOXD_place_unit_world_coords(unit, ENT_X(unit->entity), ENT_Y(unit->entity), UnitPosition_Slot0);
           goto LABEL_207;
         }
         case UnitType_Mute_Wasp:
@@ -30862,15 +30876,14 @@ LABEL_131:
         case UnitType_Mute_RotaryCannon:
           unit->state = nullptr;
           UNIT_rendering_default(unit);
-          SAVE_restore_grid_anchor(unit);
+          UNIT_update_grid_anchor(unit);
           SPAWN_TECHNICIANS(unit, unit->multi_purpose_field_1, UNIT_technician_repairing_tower_task);
           goto LABEL_194;
         default:
 LABEL_206:
           unit->state = nullptr;
           UNIT_rendering_default(unit);
-          unit->entity->is_collidable = 1;
-          BOXD_place_unit_world_coords(unit, unit->entity->x, unit->entity->y, UnitPosition_Slot0);
+          BOXD_place_unit_world_coords(unit, ENT_X(unit->entity), ENT_Y(unit->entity), UnitPosition_Slot0);
           goto LABEL_207;
       }
       while ( v58 != bld->oil_patch_index )
@@ -30956,7 +30969,7 @@ LABEL_143:
           PROD_enqueue_one_ex(&g_cash.cash[unit->player_num], remaining_cost, 300, 42, unit->task, v73->building, -1);
           unit->entity->parent = (Entity *)v73->building->unit_id;
 LABEL_189:
-          SAVE_restore_grid_anchor(unit);
+          UNIT_update_grid_anchor(unit);
 LABEL_194:
           BOXD_building_claim_area(unit);
 LABEL_207:
@@ -31058,7 +31071,7 @@ void *__fastcall SAVE_pack_prod(size_t *out_size)
 
   unsigned char *buf = malloc(*out_size);
   if (nullptr == buf) {
-    g_save_last_error = "memory";
+    strcpy(g_save_last_error, "memory");
     return nullptr;
   }
 
@@ -31429,607 +31442,344 @@ LABEL_24:
   v9->attackers_tail = (AiAttackerNode *)&v9->attackers_head;
 }
 
-//----- (0041EF20) --------------------------------------------------------
-AiSquadNodeSaveStruct *__fastcall SAVE_pack_ai_players(void *data)
+static int SAVE_pack_script_handler_id(TaskFn fn)
 {
-  Task **v1; // ebp
+  int count = sizeof(g_script_handlers) / sizeof(g_script_handlers[0]);
+  for(int i = 0; i < count; ++i) {
+    if((TaskFn)g_script_handlers[i] == fn) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+// Adds `per_node_bytes` to the running size accumulator `*(int *)data` once per
+// node in a sentinel-terminated intrusive list (sentinel = address of the head
+// field itself, via END()). The original decompiled loops all walk via an
+// `(AiController *)`-cast variable regardless of the list's real node type --
+// IDA couldn't resolve the concrete Ai*Node types, but every one of them shares
+// AiController's next/prev layout, so the cast is harmless; kept identical here
+// for the same reason. `data`/`head` are evaluated more than once -- pass
+// side-effect-free lvalues.
+#define SAVE_pack_count_list(data, head, per_node_bytes) \
+  for(AiController *_n = (AiController *)(head); _n != END(head); _n = _n->next) \
+    *(int *)(data) += (per_node_bytes)
+
+// Packs one int32 per node in a sentinel-terminated intrusive list (the
+// packing-pass counterpart to SAVE_pack_count_list's sizing-pass loops):
+// advances `cursor` by 4 bytes, increments the `*counter` int32, and writes
+// `value` into the freed slot. `type` is the node's ACTUAL pointer type at
+// this call site (not always AiController* -- e.g. enemy_head/tanker_head use
+// their real AiEnemyNode*/AiTankerNode* types in the original code, since
+// those have a real, correctly-typed `unit` field; other lists were only ever
+// walked via the generic AiController* cast and reach their payload through a
+// raw `ctx1`/`ctx2` offset instead). `value` may reference the loop's current
+// node via the name `_n`. All non-`value` args are evaluated more than once
+// -- pass side-effect-free lvalues.
+#define SAVE_pack_list_ids(cursor, counter, type, head, value) \
+  for(type _n = (type)(head); _n != END(head); _n = _n->next) { \
+    (cursor) = (char *)(cursor) + 4; \
+    ++*(counter); \
+    *((int *)(cursor) - 1) = (value); \
+  }
+
+// Packs a list of AiSquadNodes: for each squad, bumps the player-level
+// `squad_count`, writes a 40-byte AiSquadNodeSaveStruct at `cursor`, then
+// appends its attackers' unit-ids (the attacker count is stored in the packed
+// squad record's first int, which SAVE_pack_squad_node zeroes). `cursor`/
+// `squad_count` are evaluated more than once -- pass plain lvalues.
+#define SAVE_pack_squad_list(cursor, squad_count, list) \
+  for(AiSquadNode *_sq = (list); _sq != END(list); _sq = _sq->next) { \
+    int *_attacker_count = (int *)(cursor); \
+    ++(squad_count); \
+    SAVE_pack_squad_node((AiSquadNodeSaveStruct *)(cursor), _sq); \
+    (cursor) = (char *)(cursor) + 40; \
+    SAVE_pack_list_ids((cursor), _attacker_count, AiAttackerNode *, _sq->attackers_head, _n->unit->unit_id); \
+  }
+
+// A saved building-placement record is 28 bytes / 7 ints:
+//   [0] unit id (-1 if none)  -- only read back for drillrig replacements;
+//       building replacements restore `unit` as null and never read [0], so
+//       their loop leaves it untouched (matches the original decompile).
+//   [1] unit_type  [2] unit_x  [3] unit_y
+//   [4] grid_anchor_x  [5] grid_anchor_y  [6] strategic_value
+// `rec` is an int* to the record start; this writes only the 6-int tail.
+#define SAVE_pack_placement_tail(rec, node) do { \
+    (rec)[1] = (node)->unit_type; \
+    (rec)[2] = (node)->unit_x; \
+    (rec)[3] = (node)->unit_y; \
+    (rec)[4] = (node)->grid_anchor_x; \
+    (rec)[5] = (node)->grid_anchor_y; \
+    (rec)[6] = (node)->strategic_value; \
+  } while(0)
+
+//----- (0041EF20) --------------------------------------------------------
+void *__fastcall SAVE_pack_ai_players(void *data)
+{
   AiController *ai; // ebx
-  AiController *i; // eax
-  AiController *j; // edx
-  int *ctx2; // eax
-  int *v6; // esi
-  int *v7; // eax
-  AiController *k; // eax
-  AiController *m; // eax
-  AiController *n; // eax
-  AiController *ii; // eax
-  AiController *jj; // eax
-  AiController *kk; // eax
-  AiController *mm; // edx
-  int ai_controller_24; // eax
-  int *v16; // esi
-  int *v17; // eax
-  void **nn; // eax
-  AiController *i1; // eax
-  AiController *i2; // esi
-  void **i3; // eax
-  AiController *i4; // esi
-  void **i5; // eax
-  AiController *i6; // esi
-  void **i7; // eax
-  AiSquadNode *staging_squad; // eax
-  AiAttackerNode **p_attackers_head; // edx
-  AiSquadNode *attackers_head; // eax
-  AiController *i8; // eax
-  AiController *i9; // eax
-  AiController *i10; // eax
-  AiSquadNodeSaveStruct *result; // eax
+  void *result; // eax
   int v33; // ecx
   void *i22; // ebx
   Task *v35; // eax
   AiController *ai_; // esi
   void *v37; // ebp
-  TaskFn v38; // eax
-  int v39; // edi
-  TaskFn entry_point; // edx
-  void **v41; // ecx
+  AiPlayersSaveStruct *hdr; // current player's header (== v37, retyped)
   int v42; // eax
-  AiEnemyNode *i11; // eax
-  AiController *next; // edi
-  char *v45; // eax
-  AiSquadNode *v46; // edx
-  int *v47; // esi
-  int *v48; // ecx
-  int *v49; // eax
-  AiController *i12; // eax
-  AiController *i13; // eax
-  AiController *i14; // eax
-  AiController *i15; // eax
-  AiController *i16; // eax
-  AiController *i17; // eax
-  AiDrillrigNode *drillrig_head; // edi
-  int v57; // eax
-  char *v58; // ecx
-  AiPowerPlantNode *nearest_powerplant; // eax
-  Unit *unit; // eax
-  int local_threat; // eax
-  char *v62; // eax
-  AiSquadNode *guard_squad; // edx
-  int *v64; // esi
-  AiAttackerNode **v65; // ecx
-  AiAttackerNode **v66; // eax
-  AiTankerNode *i19; // eax
-  AiTankerNode *i20; // eax
-  AiSquadNode *i21; // edi
-  int *v70; // esi
-  AiAttackerNode *v71; // eax
-  AiSquadNode *i23; // edi
-  int *v73; // esi
-  AiAttackerNode *v74; // eax
-  AiSquadNode *v75; // edx
-  AiAttackerNode **v76; // ecx
-  AiAttackerNode **v77; // eax
-  AiController *v78; // ecx
-  AiSquadNode *retreat_squad_head; // edi
-  int *v80; // esi
-  AiAttackerNode *v81; // eax
-  AiBuildOrderNode *i24; // eax
-  AiBuildingPlacementNode *i25; // ecx
-  AiBuildingPlacementNode *i26; // ecx
-  Unit *v85; // edx
-  int unit_id; // edx
   Task *construction_task; // ecx
-  int *ctx; // ecx
+  Unit *construction_unit; // ecx; the unit being built (construction_task->ctx)
   AiController *v89; // [esp+10h] [ebp-30h]
   int v90; // [esp+14h] [ebp-2Ch]
-  int *v91; // [esp+18h] [ebp-28h]
-  AiDrillrigNode **i18; // [esp+1Ch] [ebp-24h]
-  AiSquadNodeSaveStruct *v93; // [esp+20h] [ebp-20h]
+  void *v93; // [esp+20h] [ebp-20h]
   int v94[7]; // [esp+24h] [ebp-1Ch]
 
   *(int *)data = 0;
-  v1 = g_ai_players_tasks;
-  int v1_i = 0;
-  do
-  {
-    if ( *v1 )
-    {
-      ai = (AiController *)(*v1)->ctx;
-      *(int *)data += 284;
-      for ( i = (AiController *)ai->enemy_head; i != (AiController *)&ai->enemy_head; i = i->next )
-        *(int *)data += 4;
-      for ( j = ai->next; j != ai; j = j->next )
-      {
-        *(int *)data += 44;
-        ctx2 = j->ctx2;
-        if ( ctx2 )
-        {
-          v6 = ctx2 + 3;
-          v7 = (int *)ctx2[3];
-          if ( v7 != v6 )
-          {
-            do
-            {
-              *(int *)data += 4;
-              v7 = (int *)*v7;
-            }
-            while ( v7 != (int *)j->ctx2 + 3 );
-          }
-        }
-      }
-      for ( k = (AiController *)ai->new_wanderer_head; k != (AiController *)&ai->new_wanderer_head; k = k->next )
-        *(int *)data += 4;
-      for ( m = (AiController *)ai->active_wanderer_head;
-            m != (AiController *)&ai->active_wanderer_head;
-            m = m->next )
-      {
-        *(int *)data += 4;
-      }
-      for ( n = (AiController *)ai->unassigned_attacker_head;
-            n != (AiController *)&ai->unassigned_attacker_head;
-            n = n->next )
-      {
-        *(int *)data += 4;
-      }
-      for ( ii = (AiController *)ai->convoy_escort_head;
-            ii != (AiController *)&ai->convoy_escort_head;
-            ii = ii->next )
-      {
-        *(int *)data += 4;
-      }
-      for ( jj = (AiController *)ai->build_head; jj != (AiController *)&ai->build_head; jj = jj->next )
-        *(int *)data += 20;
-      for ( kk = (AiController *)ai->powerplant_head; kk != (AiController *)&ai->powerplant_head; kk = kk->next )
-        *(int *)data += 4;
-      for ( mm = (AiController *)ai->drillrig_head; mm != (AiController *)&ai->drillrig_head; mm = mm->next )
-      {
-        *(int *)data += 60;
-        ai_controller_24 = mm->_ai_controller_24;
-        if ( ai_controller_24 )
-        {
-          v16 = (int *)(ai_controller_24 + 12);
-          v17 = *(int **)(ai_controller_24 + 12);
-          if ( v17 != v16 )
-          {
-            do
-            {
-              *(int *)data += 4;
-              v17 = (int *)*v17;
-            }
-            while ( v17 != (int *)(mm->_ai_controller_24 + 12) );
-          }
-        }
-        for ( nn = (void **)mm->ctx1; nn != &mm->ctx1; nn = (void **)*nn )
-          *(int *)data += 4;
-      }
-      for ( i1 = (AiController *)ai->tanker_head; i1 != (AiController *)&ai->tanker_head; i1 = i1->next )
-        *(int *)data += 4;
-      for ( i2 = (AiController *)ai->attack_squad_head;
-            i2 != (AiController *)&ai->attack_squad_head;
-            i2 = i2->next )
-      {
-        *(int *)data += 40;
-        for ( i3 = (void **)i2->ctx2; i3 != &i2->ctx2; i3 = (void **)*i3 )
-          *(int *)data += 4;
-      }
-      for ( i4 = (AiController *)ai->patrol_squad_head;
-            i4 != (AiController *)&ai->patrol_squad_head;
-            i4 = i4->next )
-      {
-        *(int *)data += 40;
-        for ( i5 = (void **)i4->ctx2; i5 != &i4->ctx2; i5 = (void **)*i5 )
-          *(int *)data += 4;
-      }
-      for ( i6 = (AiController *)ai->retreat_squad_head;
-            i6 != (AiController *)&ai->retreat_squad_head;
-            i6 = i6->next )
-      {
-        *(int *)data += 40;
-        for ( i7 = (void **)i6->ctx2; i7 != &i6->ctx2; i7 = (void **)*i7 )
-          *(int *)data += 4;
-      }
-      staging_squad = ai->staging_squad;
-      if ( staging_squad )
-      {
-        p_attackers_head = &staging_squad->attackers_head;
-        attackers_head = (AiSquadNode *)staging_squad->attackers_head;
-        if ( attackers_head != (AiSquadNode *)p_attackers_head )
-        {
-          do
-          {
-            *(int *)data += 4;
-            attackers_head = attackers_head->next;
-          }
-          while ( attackers_head != (AiSquadNode *)&ai->staging_squad->attackers_head );
-        }
-      }
-      for ( i8 = (AiController *)ai->build_order_head;
-            i8 != (AiController *)&ai->build_order_head;
-            i8 = i8->next )
-      {
-        *(int *)data += 4;
-      }
-      for ( i9 = (AiController *)ai->building_replacement_head;
-            i9 != (AiController *)&ai->building_replacement_head;
-            i9 = i9->next )
-      {
-        *(int *)data += 28;
-      }
-      for ( i10 = (AiController *)ai->drillrig_replacement_head;
-            i10 != (AiController *)&ai->drillrig_replacement_head;
-            i10 = i10->next )
-      {
-        *(int *)data += 28;
-      }
+  for (int i = 0; i < PLAYERS_MAX; ++i) {
+    if (nullptr == g_ai_players_tasks[i]) continue;
+
+    ai = (AiController *)g_ai_players_tasks[i]->ctx;
+    *(int *)data += 284;
+    SAVE_pack_count_list(data, ai->enemy_head, 4);
+    for (AiUnitNode *unit_node = (AiUnitNode *)ai->next; unit_node != (AiUnitNode *)ai; unit_node = unit_node->next) {
+      *(int *)data += 44;
+      if ( unit_node->squad )
+        SAVE_pack_count_list(data, unit_node->squad->attackers_head, 4);
     }
-    ++v1;
+    SAVE_pack_count_list(data, ai->new_wanderer_head, 4);
+    SAVE_pack_count_list(data, ai->active_wanderer_head, 4);
+    SAVE_pack_count_list(data, ai->unassigned_attacker_head, 4);
+    SAVE_pack_count_list(data, ai->convoy_escort_head, 4);
+    SAVE_pack_count_list(data, ai->build_head, sizeof(AiBuildNodeSaveStruct));
+    SAVE_pack_count_list(data, ai->powerplant_head, 4);
+    for (AiDrillrigNode *drillrig = ai->drillrig_head; drillrig != END(ai->drillrig_head); drillrig = drillrig->next) {
+      *(int *)data += sizeof(AiDrillrigNodeSaveStruct);
+      if ( drillrig->guard_squad )
+        SAVE_pack_count_list(data, drillrig->guard_squad->attackers_head, 4);
+      SAVE_pack_count_list(data, drillrig->tanker_next, 4);
+    }
+    SAVE_pack_count_list(data, ai->tanker_head, 4);
+    for (AiSquadNode *squad = ai->attack_squad_head; squad != END(ai->attack_squad_head); squad = squad->next) {
+      *(int *)data += 40;
+      SAVE_pack_count_list(data, squad->attackers_head, 4);
+    }
+    for (AiSquadNode *squad = ai->patrol_squad_head; squad != END(ai->patrol_squad_head); squad = squad->next) {
+      *(int *)data += 40;
+      SAVE_pack_count_list(data, squad->attackers_head, 4);
+    }
+    for (AiSquadNode *squad = ai->retreat_squad_head; squad != END(ai->retreat_squad_head); squad = squad->next) {
+      *(int *)data += 40;
+      SAVE_pack_count_list(data, squad->attackers_head, 4);
+    }
+    if (ai->staging_squad)
+      SAVE_pack_count_list(data, ai->staging_squad->attackers_head, 4);
+    SAVE_pack_count_list(data, ai->build_order_head, 4);
+    SAVE_pack_count_list(data, ai->building_replacement_head, 28);
+    SAVE_pack_count_list(data, ai->drillrig_replacement_head, 28);
   }
-  while ( ++v1_i < 7);
-  result = (AiSquadNodeSaveStruct *)malloc(*(int *)data);  // BUG  NOT AiSquadNodeSaveStruct
+
+  result = malloc(*(int *)data);
   v93 = result;
-  if ( !result )
-  {
-    g_save_last_error = "memory";
+  if (!result) {
+    strcpy(g_save_last_error, "memory");
     return result;
   }
   v33 = 0;
   v37 = result;
   v90 = 0;
-  while ( 1 )
-  {
+  while (1) {
     v35 = g_ai_players_tasks[v33];
-    if ( v35 )
+    if (v35)
       break;
 LABEL_140:
     v90 = ++v33;
-    if ( v33 >= 7 )
+    if (v33 >= PLAYERS_MAX)
       return v93;
   }
   ai_ = (AiController *)v35->ctx;
   v94[v33] = (int)v37;
   memset(v37, 0, 0x11Cu);
-  v38 = (TaskFn)g_script_handlers[0];
   i22 = (char *)v37 + 284;
-  v39 = 0;
   v89 = ai_;
-  if ( g_script_handlers[0] != (void *)-1 )
-  {
-    entry_point = g_ai_players_tasks[v33]->entry_point;
-    v41 = g_script_handlers;
-    do
-    {
-      if ( v38 == entry_point )
-        break;
-      v38 = (TaskFn)v41[1];
-      ++v41;
-      ++v39;
-    }
-    while ( v38 != (TaskFn)-1 );
+  v42 = SAVE_pack_script_handler_id(g_ai_players_tasks[v33]->entry_point);
+  if (!v42) {
+    sprintf(g_save_last_error, "AI task handler unresolved (player %d)", v33);
+    free(v93);
+    return nullptr;
   }
-  if ( g_script_handlers[v39] == (void *)-1 )
-    v42 = 0;
-  else
-    v42 = v39 + 1;
-  *(int *)v37 = v42;
-  if ( v42 )
+  hdr = (AiPlayersSaveStruct *)v37;
+  hdr->ai_task_handler_id = v42;
   {
-    for ( i11 = ai_->enemy_head; i11 != (AiEnemyNode *)&ai_->enemy_head; i11 = i11->next )
-    {
+    SAVE_pack_list_ids(i22, &hdr->num_enemy_nodes, AiEnemyNode *, ai_->enemy_head, _n->unit->unit_id);
+    for (AiUnitNode *unit_node = (AiUnitNode *)ai_->next; unit_node != (AiUnitNode *)ai_; unit_node = unit_node->next) {
+      AiUnitNodeSaveStruct *rec = (AiUnitNodeSaveStruct *)i22;
+      i22 = (char *)i22 + sizeof(AiUnitNodeSaveStruct);
+      ++hdr->num_unit_nodes;
+      rec->unit_id = unit_node->unit->unit_id;
+      AiSquadNode *squad = unit_node->squad;
+      if (squad) {
+        SAVE_pack_squad_node(&rec->squad, squad);
+        SAVE_pack_list_ids(i22, &rec->squad.num_attacker_nodes, AiAttackerNode *, squad->attackers_head, _n->unit->unit_id);
+      } else {
+        rec->squad.num_attacker_nodes = 0;
+      }
+    }
+    SAVE_pack_list_ids(i22, &hdr->num_wanderer_nodes, AiController *, ai_->new_wanderer_head, ((Unit *)_n->ctx2)->unit_id);
+    SAVE_pack_list_ids(i22, &hdr->num_active_wanderers, AiController *, ai_->active_wanderer_head, ((Unit *)_n->ctx2)->unit_id);
+    SAVE_pack_list_ids(i22, &hdr->num_unassigned_attackers, AiController *, ai_->unassigned_attacker_head, ((Unit *)_n->ctx2)->unit_id);
+    SAVE_pack_list_ids(i22, &hdr->num_convoy_escorts, AiController *, ai_->convoy_escort_head, ((Unit *)_n->ctx2)->unit_id);
+    for (AiBuildNode *build_node = ai_->build_head; build_node != END(ai_->build_head); build_node = build_node->next) {
+      AiBuildNodeSaveStruct *rec = (AiBuildNodeSaveStruct *)i22;
+      ++hdr->num_build_nodes;
+      rec->unit_id       = build_node->unit->unit_id;
+      rec->remaining_cost = build_node->remaining_cost;
+      rec->base_cost     = build_node->base_cost;
+      rec->cost_per_tick = build_node->cost_per_tick;
+      rec->unit_type     = build_node->unit_type;
+      i22 = (char *)i22 + sizeof(AiBuildNodeSaveStruct);
+    }
+    // AiPowerPlantNode's unit field sits at AiController.ctx1's offset (8).
+    SAVE_pack_list_ids(i22, &hdr->num_powerplant_nodes, AiController *, ai_->powerplant_head, ((Unit *)_n->ctx1)->unit_id);
+    for (AiDrillrigNode *drillrig = ai_->drillrig_head; drillrig != END(ai_->drillrig_head); drillrig = drillrig->next) {
+      AiDrillrigNodeSaveStruct *rec = (AiDrillrigNodeSaveStruct *)i22;
+      int drillrig_index = ++hdr->num_drillrig_nodes;
+      if (v89->preferred_drillrig == drillrig)
+        hdr->preferred_drillrig_index = drillrig_index;
+
+      // Fixed 60-byte header, then guard-squad attacker ids, then tanker ids.
+      AiPowerPlantNode *pp = drillrig->nearest_powerplant;
+      rec->unit_id = drillrig->unit->unit_id;
+      rec->nearest_powerplant_unit_id = (pp && pp->unit) ? pp->unit->unit_id : -1;
+      rec->local_threat = drillrig->local_threat;
+      rec->num_tankers = 0;
+      rec->desired_tanker_count = drillrig->desired_tanker_count;
+      i22 = (char *)i22 + sizeof(AiDrillrigNodeSaveStruct);
+
+      AiSquadNode *guard_squad = drillrig->guard_squad;
+      if (guard_squad) {
+        SAVE_pack_squad_node(&rec->guard_squad, guard_squad);
+        SAVE_pack_list_ids(i22, &rec->guard_squad.num_attacker_nodes, AiAttackerNode *, guard_squad->attackers_head, _n->unit->unit_id);
+      } else {
+        rec->guard_squad.num_attacker_nodes = 0;
+      }
+      SAVE_pack_list_ids(i22, &rec->num_tankers, AiTankerNode *, drillrig->tanker_next, _n->unit->unit_id);
+    }
+    SAVE_pack_list_ids(i22, &hdr->num_tanker_nodes, AiTankerNode *, v89->tanker_head, _n->unit->unit_id);
+    SAVE_pack_squad_list(i22, hdr->num_attack_squads, v89->attack_squad_head);
+    SAVE_pack_squad_list(i22, hdr->num_patrol_squads, v89->patrol_squad_head);
+    AiSquadNode *staging = v89->staging_squad;
+    if (staging) {
+      SAVE_pack_squad_node((AiSquadNodeSaveStruct *)&hdr->num_staging_attackers, staging);
+      SAVE_pack_list_ids(i22, &hdr->num_staging_attackers, AiAttackerNode *, staging->attackers_head, _n->unit->unit_id);
+    } else {
+      hdr->num_staging_attackers = 0;
+    }
+    SAVE_pack_squad_list(i22, hdr->num_retreat_squads, v89->retreat_squad_head);
+    hdr->base_area_min_x = v89->base_area_min_x;
+    hdr->base_area_min_y = v89->base_area_min_y;
+    hdr->base_area_max_x = v89->base_area_max_x;
+    hdr->base_area_max_y = v89->base_area_max_y;
+    hdr->num_build_orders = 0;
+    for (AiBuildOrderNode *order = v89->build_order_head; order != END(v89->build_order_head); order = order->next) {
       i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 10);
-      *((int *)i22 - 1) = i11->unit->unit_id;
+      ++hdr->num_build_orders;
+      *((int *)i22 - 1) = order->_ai_stru26C_node_8;
+      if ( v89->build_order_current == order )
+        hdr->build_order_current_index = hdr->num_build_orders;
     }
-    next = ai_->next;
-    if ( ai_->next != ai_ )
+    hdr->rally_x = v89->rally_x;
+    hdr->rally_y = v89->rally_y;
+    memcpy(hdr->patrol_waypoints, v89->patrol_waypoints, sizeof(hdr->patrol_waypoints));
+    hdr->player_num = v89->player_num;
+    hdr->player_race = v89->player_race;
+    hdr->attacker_count = v89->attacker_count;
+    hdr->max_units = v89->max_units;
+    hdr->squad_threshold = v89->squad_threshold;
+    hdr->attack_confidence = v89->attack_confidence;
+    hdr->base_threat = v89->base_threat;
+    hdr->max_squad_threat = v89->max_squad_threat;
+    hdr->best_patrol_waypoint_idx = v89->best_patrol_waypoint_idx;
+    // Likewise patrol_threat, last_unit_produced(+_factory) and
+    // tanker_production_in_progress were one 0x20 memcpy.
+    memcpy(hdr->patrol_threat, v89->patrol_threat, sizeof(hdr->patrol_threat));
+    hdr->last_unit_produced = v89->last_unit_produced;
+    hdr->last_unit_produced_factory = v89->last_unit_produced_factory;
+    hdr->tanker_production_in_progress = v89->tanker_production_in_progress;
+    for (AiBuildingPlacementNode *repl = v89->building_replacement_head;
+          repl != END(v89->building_replacement_head);
+          repl = repl->next)
     {
-      do
-      {
-        v45 = (char *)i22;
-        i22 = (char *)i22 + 44;
-        ++*((int *)v37 + 1);
-        *((int *)i22 - 11) = *((int *)next->ctx1 + 76);
-        v46 = (AiSquadNode *)next->ctx2;
-        if ( v46 )
-        {
-          v47 = (int *)(v45 + 4);
-          SAVE_pack_squad_node((AiSquadNodeSaveStruct *)(v45 + 4), v46);
-          v48 = (int *)((char *)next->ctx2 + 12);
-          v49 = (int *)*v48;
-          if ( (int *)*v48 != v48 )
-          {
-            do
-            {
-              i22 = (char *)i22 + 4;
-              ++*v47;
-              *((int *)i22 - 1) = *(int *)(v49[3] + 304);
-              v49 = (int *)*v49;
-            }
-            while ( v49 != (int *)next->ctx2 + 3 );
-          }
-        }
-        else
-        {
-          *((int *)v45 + 1) = 0;
-        }
-        next = next->next;
-      }
-      while ( next != v89 );
-      ai_ = v89;
-    }
-    for ( i12 = (AiController *)ai_->new_wanderer_head;
-          i12 != (AiController *)&ai_->new_wanderer_head;
-          i12 = i12->next )
-    {
-      i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 2);
-      *((int *)i22 - 1) = *((int *)i12->ctx2 + 76);
-    }
-    for ( i13 = (AiController *)ai_->active_wanderer_head;
-          i13 != (AiController *)&ai_->active_wanderer_head;
-          i13 = i13->next )
-    {
-      i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 3);
-      *((int *)i22 - 1) = *((int *)i13->ctx2 + 76);
-    }
-    for ( i14 = (AiController *)ai_->unassigned_attacker_head;
-          i14 != (AiController *)&ai_->unassigned_attacker_head;
-          i14 = i14->next )
-    {
-      i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 4);
-      *((int *)i22 - 1) = *((int *)i14->ctx2 + 76);
-    }
-    for ( i15 = (AiController *)ai_->convoy_escort_head;
-          i15 != (AiController *)&ai_->convoy_escort_head;
-          i15 = i15->next )
-    {
-      i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 5);
-      *((int *)i22 - 1) = *((int *)i15->ctx2 + 76);
-    }
-    for ( i16 = (AiController *)ai_->build_head; i16 != (AiController *)&ai_->build_head; i16 = i16->next )
-    {
-      i22 = (char *)i22 + 20;
-      ++*((int *)v37 + 6);
-      *((int *)i22 - 5) = *((int *)i16->ctx1 + 76);
-      *((int *)i22 - 4) = (int)i16->ctx2;
-      *((int *)i22 - 3) = (int)i16->unit_free_head;
-      *((int *)i22 - 2) = (int)i16->new_wanderer_head;
-      *((int *)i22 - 1) = (int)i16->unit_node_pool;
-    }
-    for ( i17 = (AiController *)ai_->powerplant_head;
-          i17 != (AiController *)&ai_->powerplant_head;
-          i17 = i17->next )
-    {
-      i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 9);
-      *((int *)i22 - 1) = *((int *)i17->ctx1 + 76);
-    }
-    drillrig_head = ai_->drillrig_head;
-    for ( i18 = &ai_->drillrig_head; drillrig_head != (AiDrillrigNode *)i18; drillrig_head = drillrig_head->next )
-    {
-      v57 = *((int *)v37 + 7) + 1;
-      v58 = (char *)i22;
-      *((int *)v37 + 7) = v57;
-      if ( v89->preferred_drillrig == drillrig_head )
-        *((int *)v37 + 57) = v57;
-      *(int *)i22 = drillrig_head->unit->unit_id;
-      nearest_powerplant = drillrig_head->nearest_powerplant;
-      if ( nearest_powerplant )
-      {
-        unit = nearest_powerplant->unit;
-        if ( unit )
-          *((int *)i22 + 11) = unit->unit_id;
-        else
-          *((int *)i22 + 11) = -1;
-      }
-      else
-      {
-        *((int *)i22 + 11) = -1;
-      }
-      local_threat = drillrig_head->local_threat;
-      *((int *)i22 + 13) = 0;
-      *((int *)i22 + 12) = local_threat;
-      v62 = (char *)i22 + 52;
-      *((int *)i22 + 14) = drillrig_head->desired_tanker_count;
-      guard_squad = drillrig_head->guard_squad;
-      i22 = (char *)i22 + 60;
-      v91 = (int *)v62;
-      if ( guard_squad )
-      {
-        v64 = (int *)(v58 + 4);
-        SAVE_pack_squad_node((AiSquadNodeSaveStruct *)(v58 + 4), guard_squad);
-        v65 = &drillrig_head->guard_squad->attackers_head;
-        v66 = (AiAttackerNode **)*v65;
-        if ( *v65 != (AiAttackerNode *)v65 )
-        {
-          do
-          {
-            i22 = (char *)i22 + 4;
-            ++*v64;
-            *((int *)i22 - 1) = (int)v66[3][19].next;
-            v66 = (AiAttackerNode **)*v66;
-          }
-          while ( v66 != &drillrig_head->guard_squad->attackers_head );
-        }
-      }
-      else
-      {
-        *((int *)v58 + 1) = 0;
-      }
-      for ( i19 = drillrig_head->tanker_next; i19 != (AiTankerNode *)&drillrig_head->tanker_next; i19 = i19->next )
-      {
-        i22 = (char *)i22 + 4;
-        ++*v91;
-        *((int *)i22 - 1) = i19->unit->unit_id;
-      }
-    }
-    for ( i20 = v89->tanker_head; i20 != (AiTankerNode *)&v89->tanker_head; i20 = i20->next )
-    {
-      i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 8);
-      *((int *)i22 - 1) = i20->unit->unit_id;
-    }
-    for ( i21 = v89->attack_squad_head; i21 != (AiSquadNode *)&v89->attack_squad_head; i21 = i21->next )
-    {
-      v70 = i22;
-      ++*((int *)v37 + 11);
-      SAVE_pack_squad_node((AiSquadNodeSaveStruct *)i22, i21);
-      v71 = i21->attackers_head;
-      for ( i22 = (char *)i22 + 40; v71 != (AiAttackerNode *)&i21->attackers_head; v71 = v71->next )
-      {
-        i22 = (char *)i22 + 4;
-        ++*v70;
-        *((int *)i22 - 1) = v71->unit->unit_id;
-      }
-    }
-    for ( i23 = v89->patrol_squad_head; i23 != (AiSquadNode *)&v89->patrol_squad_head; i23 = i23->next )
-    {
-      v73 = i22;
-      ++*((int *)v37 + 12);
-      SAVE_pack_squad_node((AiSquadNodeSaveStruct *)i22, i23);
-      v74 = i23->attackers_head;
-      for ( i22 = (char *)i22 + 40; v74 != (AiAttackerNode *)&i23->attackers_head; v74 = v74->next )
-      {
-        i22 = (char *)i22 + 4;
-        ++*v73;
-        *((int *)i22 - 1) = v74->unit->unit_id;
-      }
-    }
-    v75 = v89->staging_squad;
-    if ( v75 )
-    {
-      SAVE_pack_squad_node((AiSquadNodeSaveStruct *)((char *)v37 + 56), v75);
-      v76 = &v89->staging_squad->attackers_head;
-      v77 = (AiAttackerNode **)*v76;
-      if ( *v76 != (AiAttackerNode *)v76 )
-      {
-        do
-        {
-          i22 = (char *)i22 + 4;
-          ++*((int *)v37 + 14);
-          *((int *)i22 - 1) = (int)v77[3][19].next;
-          v77 = (AiAttackerNode **)*v77;
-        }
-        while ( v77 != &v89->staging_squad->attackers_head );
-      }
-    }
-    else
-    {
-      *((int *)v37 + 14) = 0;
-    }
-    v78 = v89;
-    retreat_squad_head = v89->retreat_squad_head;
-    if ( retreat_squad_head != (AiSquadNode *)&v89->retreat_squad_head )
-    {
-      do
-      {
-        v80 = i22;
-        ++*((int *)v37 + 13);
-        SAVE_pack_squad_node((AiSquadNodeSaveStruct *)i22, retreat_squad_head);
-        v81 = retreat_squad_head->attackers_head;
-        for ( i22 = (char *)i22 + 40; v81 != (AiAttackerNode *)&retreat_squad_head->attackers_head; v81 = v81->next )
-        {
-          i22 = (char *)i22 + 4;
-          ++*v80;
-          *((int *)i22 - 1) = v81->unit->unit_id;
-        }
-        retreat_squad_head = retreat_squad_head->next;
-      }
-      while ( retreat_squad_head != (AiSquadNode *)&v89->retreat_squad_head );
-      v78 = v89;
-    }
-    *((int *)v37 + 24) = v78->base_area_min_x;
-    *((int *)v37 + 25) = v78->base_area_min_y;
-    *((int *)v37 + 26) = v78->base_area_max_x;
-    *((int *)v37 + 27) = v78->base_area_max_y;
-    *((int *)v37 + 28) = 0;
-    for ( i24 = v78->build_order_head; i24 != (AiBuildOrderNode *)&v78->build_order_head; i24 = i24->next )
-    {
-      i22 = (char *)i22 + 4;
-      ++*((int *)v37 + 28);
-      *((int *)i22 - 1) = i24->_ai_stru26C_node_8;
-      if ( v78->build_order_current == i24 )
-        *((int *)v37 + 29) = *((int *)v37 + 28);
-    }
-    *((int *)v37 + 30) = v89->rally_x;
-    *((int *)v37 + 31) = v89->rally_y;
-    memcpy((char *)v37 + 128, v89->patrol_waypoints, 0x28u);
-    *((int *)v37 + 42) = v89->attacker_count;
-    *((int *)v37 + 43) = v89->max_units;
-    *((int *)v37 + 44) = v89->squad_threshold;
-    *((int *)v37 + 45) = v89->attack_confidence;
-    *((int *)v37 + 46) = v89->base_threat;
-    *((int *)v37 + 47) = v89->max_squad_threat;
-    *((int *)v37 + 48) = v89->best_patrol_waypoint_idx;
-    memcpy((char *)v37 + 196, v89->patrol_threat, 0x20u);
-    for ( i25 = v89->building_replacement_head;
-          i25 != (AiBuildingPlacementNode *)&v89->building_replacement_head;
-          i25 = i25->next )
-    {
+      int *rec = (int *)i22;
+      ++hdr->num_building_replacements;
+      SAVE_pack_placement_tail(rec, repl);  // rec[0] (unit id) left unwritten -- unread on load
       i22 = (char *)i22 + 28;
-      ++*((int *)v37 + 58);
-      *((int *)i22 - 6) = i25->unit_type;
-      *((int *)i22 - 5) = i25->unit_x;
-      *((int *)i22 - 4) = i25->unit_y;
-      *((int *)i22 - 3) = i25->grid_anchor_x;
-      *((int *)i22 - 2) = i25->grid_anchor_y;
-      *((int *)i22 - 1) = i25->strategic_value;
     }
-    for ( i26 = v89->drillrig_replacement_head;
-          i26 != (AiBuildingPlacementNode *)&v89->drillrig_replacement_head;
-          i22 = (char *)i22 + 28 )
+    for (AiBuildingPlacementNode *repl = v89->drillrig_replacement_head;
+          repl != END(v89->drillrig_replacement_head);
+          repl = repl->next)
     {
-      ++*((int *)v37 + 59);
-      v85 = i26->unit;
-      if ( v85 )
-        unit_id = v85->unit_id;
-      else
-        unit_id = -1;
-      *(int *)i22 = unit_id;
-      *((int *)i22 + 1) = i26->unit_type;
-      *((int *)i22 + 2) = i26->unit_x;
-      *((int *)i22 + 3) = i26->unit_y;
-      *((int *)i22 + 4) = i26->grid_anchor_x;
-      *((int *)i22 + 5) = i26->grid_anchor_y;
-      *((int *)i22 + 6) = i26->strategic_value;
-      i26 = i26->next;
+      int *rec = (int *)i22;
+      ++hdr->num_drillrig_replacements;
+      rec[0] = repl->unit ? repl->unit->unit_id : -1;
+      SAVE_pack_placement_tail(rec, repl);
+      i22 = (char *)i22 + 28;
     }
-    *((int *)v37 + 60) = v89->construction_state;
-    *((int *)v37 + 61) = v89->construction_base_cost;
-    *((int *)v37 + 62) = v89->construction_remaining_cost;
-    *((int *)v37 + 63) = v89->construction_countdown;
-    *((int *)v37 + 65) = v89->construction_cost_per_tick;
+    hdr->construction_state = v89->construction_state;
+    hdr->construction_base_cost = v89->construction_base_cost;
+    hdr->construction_remaining_cost = v89->construction_remaining_cost;
+    hdr->construction_countdown = v89->construction_countdown;
+    hdr->construction_cost_per_tick = v89->construction_cost_per_tick;
     construction_task = v89->construction_task;
-    if ( construction_task )
-    {
-      ctx = construction_task->ctx;
-      if ( ctx )
-      {
-        *((int *)v37 + 64) = ctx[76];
+    if (construction_task) {
+      construction_unit = (Unit *)construction_task->ctx;
+      if (construction_unit) {
+        hdr->construction_task_unit_id = construction_unit->unit_id;
+      } else {
+        hdr->construction_task_unit_id = -1;
+        hdr->construction_task_x = ENT_X(v89->construction_task->entity);
+        hdr->construction_task_y = ENT_Y(v89->construction_task->entity);
       }
-      else
-      {
-        *((int *)v37 + 64) = -1;
-        v89->construction_task->entity->is_collidable = 1;
-        *((int *)v37 + 67) = v89->construction_task->entity->x;
-        *((int *)v37 + 68) = v89->construction_task->entity->y;
-      }
+    } else {
+      hdr->construction_task_unit_id = -1;
+      hdr->construction_task_unit_type = -1;
     }
-    else
-    {
-      *((int *)v37 + 64) = -1;
-      *((int *)v37 + 66) = -1;
-    }
-    *((int *)v37 + 69) = v89->airstrike_interval;
+    hdr->airstrike_interval = v89->airstrike_interval;
     v33 = v90;
-    *((int *)v37 + 70) = v89->airstrike_count;
+    hdr->airstrike_count = v89->airstrike_count;
+    v37 = i22;   // advance to next player's header (follows this player's trailer)
     goto LABEL_140;
   }
-  g_save_last_error = "unknown mode";
-  return nullptr;
 }
+
+#undef SAVE_pack_count_list
+#undef SAVE_pack_list_ids
+#undef SAVE_pack_squad_list
+#undef SAVE_pack_placement_tail
+
+// Pops one node off an AiController free list into `dst`; on exhaustion records
+// which pool ran dry (surfaced in the load error message) and returns 0 from the
+// caller. NOTE: `dst`/`pool` are evaluated more than once — pass plain lvalues.
+#define AI_POP(dst, pool, name) do { \
+    (dst) = (pool); \
+    if(!(dst)) { \
+      strcpy(g_save_last_error, name " pool exhausted"); \
+      return 0; \
+    } \
+    (pool) = (dst)->next; \
+  } while(0)
+
+// Prepend `node` to an intrusive doubly-linked list whose head pointer is `head`
+// (sentinel prev is &head); `type` is the node type. Push `node` back onto a
+// singly-linked free list headed by `freehead`. Args evaluated more than once —
+// pass side-effect-free lvalues.
+#define LIST_PREPEND(node, head, type) do { \
+    (node)->next = (head); \
+    (node)->prev = (type *)&(head); \
+    (head)->prev = (node); \
+    (head) = (node); \
+  } while(0)
+#define LIST_FREE_PUSH(node, freehead) do { \
+    (node)->next = (freehead); \
+    (freehead) = (node); \
+  } while(0)
 
 //----- (0041F960) --------------------------------------------------------
 BOOL __fastcall SAVE_unpack_ai_players(const AiPlayersSaveStruct *data)
@@ -32053,7 +31803,6 @@ BOOL __fastcall SAVE_unpack_ai_players(const AiPlayersSaveStruct *data)
   int v18; // edi
   AiAttackerNode *attacker_free_head; // eax
   int attacker_free_head_unit_id; // edx
-  bool v21; // zf
   Unit *v22; // ecx
   int v23; // esi
   AiWandererNode *wanderer_free_head; // ecx
@@ -32176,14 +31925,18 @@ BOOL __fastcall SAVE_unpack_ai_players(const AiPlayersSaveStruct *data)
     else
       v8 = nullptr;
     if ( !v8 )
+    {
+      sprintf(g_save_last_error, "AI task handler unresolved (player %d, id=%d, max=%u)",
+              v1, (int)ai_task_handler_id, g_script_handlers_num);
       return 0;
+    }
     v3->entry_point = v8;
     player_num = v5->player_num;
     ai->player_num = player_num;
     v10 = 0;
     ai->cash = &g_cash.cash[player_num];
     ai->last_unit_produced = v5->last_unit_produced;
-    if ( v5->_ai_players_save_struct_28 > 0 )
+    if ( v5->num_enemy_nodes > 0 )
       break;
 LABEL_22:
     v118 = 0;
@@ -32191,28 +31944,8 @@ LABEL_22:
     {
       do
       {
-        unit_free_head = ai->unit_free_head;
-        if ( unit_free_head )
-          ai->unit_free_head = unit_free_head->next;
-        else
-          unit_free_head = nullptr;
-        if ( !unit_free_head )
-          return 0;
-        if ( *(const int *)p_unit_free_head_unit_id == -1
-          || (v15 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-        {
-LABEL_31:
-          v15 = nullptr;
-        }
-        else
-        {
-          while ( v15->unit_id != *(const int *)p_unit_free_head_unit_id)
-          {
-            v15 = v15->next;
-            if ( v15 == (Unit *)&g_unit_list_head )
-              goto LABEL_31;
-          }
-        }
+        AI_POP(unit_free_head, ai->unit_free_head, "unit");
+        v15 = SAVE_find_unit_by_id(*(const int *)p_unit_free_head_unit_id);
         unit_free_head->unit = v15;
         p_squad_node = p_unit_free_head_unit_id + 4; // &squad_node
         const AiSquadNodeSaveStruct *squad_node = (const AiSquadNodeSaveStruct *)p_squad_node;
@@ -32231,7 +31964,10 @@ LABEL_31:
             unit_free_head->squad = nullptr;
           }
           if ( !unit_free_head->squad )
+          {
+            strcpy(g_save_last_error, "squad pool exhausted");
             return 0;
+          }
 
           SAVE_unpack_squad_node(ai, squad_node, unit_free_head->squad);
           v18 = 0;
@@ -32239,52 +31975,25 @@ LABEL_31:
           {
             do
             {
-              attacker_free_head = ai->attacker_free_head;
-              if ( attacker_free_head )
-                ai->attacker_free_head = attacker_free_head->next;
-              else
-                attacker_free_head = nullptr;
-              if ( !attacker_free_head )
-                return 0;
+              AI_POP(attacker_free_head, ai->attacker_free_head, "attacker");
               attacker_free_head_unit_id = *(const int *)data_148_11C;
-              v21 = attacker_free_head_unit_id == -1;
               data_148_11C += 4;
-              if ( v21 || (v22 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-              {
-LABEL_46:
-                v22 = nullptr;
-              }
-              else
-              {
-                while ( v22->unit_id != attacker_free_head_unit_id )
-                {
-                  v22 = v22->next;
-                  if ( v22 == (Unit *)&g_unit_list_head )
-                    goto LABEL_46;
-                }
-              }
+              v22 = SAVE_find_unit_by_id(attacker_free_head_unit_id);
               attacker_free_head->unit = v22;
               if ( v22 )
               {
                 attacker_free_head->squad = unit_free_head->squad;
                 attacker_free_head->unit->ai_node_per_side[ai->player_num] = attacker_free_head;
-                attacker_free_head->next = unit_free_head->squad->attackers_head;
-                attacker_free_head->prev = (AiAttackerNode *)&unit_free_head->squad->attackers_head;
-                unit_free_head->squad->attackers_head->prev = attacker_free_head;
-                unit_free_head->squad->attackers_head = attacker_free_head;
+                LIST_PREPEND(attacker_free_head, unit_free_head->squad->attackers_head, AiAttackerNode);
               }
               else
               {
-                attacker_free_head->next = ai->attacker_free_head;
-                ai->attacker_free_head = attacker_free_head;
+                LIST_FREE_PUSH(attacker_free_head, ai->attacker_free_head);
               }
             }
             while ( ++v18 < squad_node->num_attacker_nodes );
           }
-          unit_free_head->squad->next = ai->attack_squad_head;
-          unit_free_head->squad->prev = (AiSquadNode *)&ai->attack_squad_head;
-          ai->attack_squad_head->prev = unit_free_head->squad;
-          ai->attack_squad_head = unit_free_head->squad;
+          LIST_PREPEND(unit_free_head->squad, ai->attack_squad_head, AiSquadNode);
         }
         else
         {
@@ -32303,214 +32012,101 @@ LABEL_46:
     {
       do
       {
-        wanderer_free_head = ai->wanderer_free_head;
-        if ( wanderer_free_head )
-          ai->wanderer_free_head = wanderer_free_head->next;
-        else
-          wanderer_free_head = nullptr;
-        if ( !wanderer_free_head )
-          return 0;
+        AI_POP(wanderer_free_head, ai->wanderer_free_head, "wanderer");
         unit_free_head_unit_id = *(const int *)p_unit_free_head_unit_id;
         p_unit_free_head_unit_id += 4;
         data_148_11C = p_unit_free_head_unit_id;
-        if ( unit_free_head_unit_id == -1
-          || (v26 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-        {
-LABEL_63:
-          v26 = nullptr;
-        }
-        else
-        {
-          while ( v26->unit_id != unit_free_head_unit_id )
-          {
-            v26 = v26->next;
-            if ( v26 == (Unit *)&g_unit_list_head )
-              goto LABEL_63;
-          }
-        }
+        v26 = SAVE_find_unit_by_id(unit_free_head_unit_id);
         wanderer_free_head->unit = v26;
         if ( v26 )
         {
           wanderer_free_head->unit->ai_node_per_side[ai->player_num] = wanderer_free_head;
-          wanderer_free_head->next = ai->new_wanderer_head;
-          wanderer_free_head->prev = (AiWandererNode *)&ai->new_wanderer_head;
-          ai->new_wanderer_head->prev = wanderer_free_head;
-          ai->new_wanderer_head = wanderer_free_head;
+          LIST_PREPEND(wanderer_free_head, ai->new_wanderer_head, AiWandererNode);
         }
         else
         {
-          wanderer_free_head->next = ai->wanderer_free_head;
-          ai->wanderer_free_head = wanderer_free_head;
+          LIST_FREE_PUSH(wanderer_free_head, ai->wanderer_free_head);
         }
       }
       while ( ++v23 < v117->num_wanderer_nodes );
     }
     v27 = 0;
-    if ( v117->_ai_players_save_struct_C > 0 )
+    if ( v117->num_active_wanderers > 0 )
     {
       do
       {
-        active_wanderer_free_head = ai->active_wanderer_free_head;
-        if ( active_wanderer_free_head )
-          ai->active_wanderer_free_head = active_wanderer_free_head->next;
-        else
-          active_wanderer_free_head = nullptr;
-        if ( !active_wanderer_free_head )
-          return 0;
+        AI_POP(active_wanderer_free_head, ai->active_wanderer_free_head, "active_wanderer");
         v29 = *(const int *)p_unit_free_head_unit_id;
         p_unit_free_head_unit_id += 4;
         data_148_11C = p_unit_free_head_unit_id;
-        if ( v29 == -1 || (v30 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-        {
-LABEL_77:
-          v30 = nullptr;
-        }
-        else
-        {
-          while ( v30->unit_id != v29 )
-          {
-            v30 = v30->next;
-            if ( v30 == (Unit *)&g_unit_list_head )
-              goto LABEL_77;
-          }
-        }
+        v30 = SAVE_find_unit_by_id(v29);
         active_wanderer_free_head->unit = v30;
         if ( v30 )
         {
           active_wanderer_free_head->unit->ai_node_per_side[ai->player_num] = active_wanderer_free_head;
-          active_wanderer_free_head->next = ai->active_wanderer_head;
-          active_wanderer_free_head->prev = (AiWandererNode *)&ai->active_wanderer_head;
-          ai->active_wanderer_head->prev = active_wanderer_free_head;
-          ai->active_wanderer_head = active_wanderer_free_head;
+          LIST_PREPEND(active_wanderer_free_head, ai->active_wanderer_head, AiWandererNode);
         }
         else
         {
-          active_wanderer_free_head->next = ai->active_wanderer_free_head;
-          ai->active_wanderer_free_head = active_wanderer_free_head;
+          LIST_FREE_PUSH(active_wanderer_free_head, ai->active_wanderer_free_head);
         }
       }
-      while ( ++v27 < v117->_ai_players_save_struct_C );
+      while ( ++v27 < v117->num_active_wanderers );
     }
     v31 = 0;
-    if ( v117->_ai_players_save_struct_10 > 0 )
+    if ( v117->num_unassigned_attackers > 0 )
     {
       do
       {
-        v32 = ai->attacker_free_head;
-        if ( v32 )
-          ai->attacker_free_head = v32->next;
-        else
-          v32 = nullptr;
-        if ( !v32 )
-          return 0;
+        AI_POP(v32, ai->attacker_free_head, "attacker");
         v33 = *(const int *)p_unit_free_head_unit_id;
         p_unit_free_head_unit_id += 4;
         data_148_11C = p_unit_free_head_unit_id;
-        if ( v33 == -1 || (v34 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-        {
-LABEL_91:
-          v34 = nullptr;
-        }
-        else
-        {
-          while ( v34->unit_id != v33 )
-          {
-            v34 = v34->next;
-            if ( v34 == (Unit *)&g_unit_list_head )
-              goto LABEL_91;
-          }
-        }
+        v34 = SAVE_find_unit_by_id(v33);
         v32->unit = v34;
         if ( v34 )
         {
           unit = v32->unit;
           v32->squad = nullptr;
           unit->ai_node_per_side[ai->player_num] = v32;
-          v32->next = ai->unassigned_attacker_head;
-          v32->prev = (AiAttackerNode *)&ai->unassigned_attacker_head;
-          ai->unassigned_attacker_head->prev = v32;
-          ai->unassigned_attacker_head = v32;
+          LIST_PREPEND(v32, ai->unassigned_attacker_head, AiAttackerNode);
         }
         else
         {
-          v32->next = ai->attacker_free_head;
-          ai->attacker_free_head = v32;
+          LIST_FREE_PUSH(v32, ai->attacker_free_head);
         }
       }
-      while ( ++v31 < v117->_ai_players_save_struct_10 );
+      while ( ++v31 < v117->num_unassigned_attackers );
     }
     v36 = 0;
-    if ( v117->_ai_players_save_struct_14 > 0 )
+    if ( v117->num_convoy_escorts > 0 )
     {
       do
       {
-        v37 = ai->attacker_free_head;
-        if ( v37 )
-          ai->attacker_free_head = v37->next;
-        else
-          v37 = nullptr;
-        if ( !v37 )
-          return 0;
+        AI_POP(v37, ai->attacker_free_head, "attacker");
         v38 = *(const int *)p_unit_free_head_unit_id;
         p_unit_free_head_unit_id += 4;
         data_148_11C = p_unit_free_head_unit_id;
-        if ( v38 == -1 || (v39 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-        {
-LABEL_105:
-          v39 = nullptr;
-        }
-        else
-        {
-          while ( v39->unit_id != v38 )
-          {
-            v39 = v39->next;
-            if ( v39 == (Unit *)&g_unit_list_head )
-              goto LABEL_105;
-          }
-        }
+        v39 = SAVE_find_unit_by_id(v38);
         v37->unit = v39;
         if ( v39 )
         {
           v40 = v37->unit;
           v37->squad = nullptr;
           v40->ai_node_per_side[ai->player_num] = v37;
-          v37->next = ai->convoy_escort_head;
-          v37->prev = (AiAttackerNode *)&ai->convoy_escort_head;
-          ai->convoy_escort_head->prev = v37;
-          ai->convoy_escort_head = v37;
+          LIST_PREPEND(v37, ai->convoy_escort_head, AiAttackerNode);
         }
         else
         {
-          v37->next = ai->attacker_free_head;
-          ai->attacker_free_head = v37;
+          LIST_FREE_PUSH(v37, ai->attacker_free_head);
         }
       }
-      while ( ++v36 < v117->_ai_players_save_struct_14 );
+      while ( ++v36 < v117->num_convoy_escorts );
     }
-    for ( i = 0; i < v117->_ai_players_save_struct_18; data_148_11C = p_unit_free_head_unit_id )
+    for ( i = 0; i < v117->num_build_nodes; data_148_11C = p_unit_free_head_unit_id )
     {
-      build_free_head = ai->build_free_head;
-      if ( build_free_head )
-        ai->build_free_head = build_free_head->next;
-      else
-        build_free_head = nullptr;
-      if ( !build_free_head )
-        return 0;
-      if ( *(const int *)p_unit_free_head_unit_id == -1
-        || (v43 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-      {
-LABEL_119:
-        v43 = nullptr;
-      }
-      else
-      {
-        while ( v43->unit_id != *(const int *)p_unit_free_head_unit_id )
-        {
-          v43 = v43->next;
-          if ( v43 == (Unit *)&g_unit_list_head )
-            goto LABEL_119;
-        }
-      }
+      AI_POP(build_free_head, ai->build_free_head, "build");
+      v43 = SAVE_find_unit_by_id(*(const int *)p_unit_free_head_unit_id);
       build_free_head->unit = v43;
       v43->ai_node_per_side[ai->player_num] = build_free_head;
       build_free_head->base_cost = *(const int *)(p_unit_free_head_unit_id + 8);
@@ -32535,32 +32131,13 @@ LABEL_119:
       ai->build_head->prev = build_free_head;
       ai->build_head = build_free_head;
     }
-    for ( j = 0; j < v117->_ai_players_save_struct_24; ai->powerplant_head = powerplant_free_head )
+    for ( j = 0; j < v117->num_powerplant_nodes; ai->powerplant_head = powerplant_free_head )
     {
-      powerplant_free_head = ai->powerplant_free_head;
-      if ( powerplant_free_head )
-        ai->powerplant_free_head = powerplant_free_head->next;
-      else
-        powerplant_free_head = nullptr;
-      if ( !powerplant_free_head )
-        return 0;
+      AI_POP(powerplant_free_head, ai->powerplant_free_head, "powerplant");
       v48 = *(const int *)p_unit_free_head_unit_id;
       p_unit_free_head_unit_id = p_unit_free_head_unit_id + 4;
       data_148_11C = p_unit_free_head_unit_id;
-      if ( v48 == -1 || (v49 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-      {
-LABEL_132:
-        v49 = nullptr;
-      }
-      else
-      {
-        while ( v49->unit_id != v48 )
-        {
-          v49 = v49->next;
-          if ( v49 == (Unit *)&g_unit_list_head )
-            goto LABEL_132;
-        }
-      }
+      v49 = SAVE_find_unit_by_id(v48);
       powerplant_free_head->unit = v49;
       ++j;
       v49->ai_node_per_side[ai->player_num] = powerplant_free_head;
@@ -32569,36 +32146,16 @@ LABEL_132:
       ai->powerplant_head->prev = powerplant_free_head;
     }
     v50 = 0;
-    if ( v117->_ai_players_save_struct_1C > 0 )
+    if ( v117->num_drillrig_nodes > 0 )
     {
       do
       {
-        drillrig_free_head = ai->drillrig_free_head;
         v52 = data_148_11C;
-        if ( drillrig_free_head )
-          ai->drillrig_free_head = drillrig_free_head->next;
-        else
-          drillrig_free_head = nullptr;
-        if ( !drillrig_free_head )
-          return 0;
+        AI_POP(drillrig_free_head, ai->drillrig_free_head, "drillrig");
         v125 = v50 + 1;
-        if ( v117->_ai_players_save_struct_E4 == v50 + 1 )
+        if ( v117->preferred_drillrig_index == v50 + 1 )
           ai->preferred_drillrig = drillrig_free_head;
-        if ( *(const int *)data_148_11C == -1
-          || (v53 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-        {
-LABEL_145:
-          v53 = nullptr;
-        }
-        else
-        {
-          while ( v53->unit_id != *(const int *)data_148_11C )
-          {
-            v53 = v53->next;
-            if ( v53 == (Unit *)&g_unit_list_head )
-              goto LABEL_145;
-          }
-        }
+        v53 = SAVE_find_unit_by_id(*(const int *)data_148_11C);
         drillrig_free_head->unit = v53;
         v53->ai_node_per_side[ai->player_num] = drillrig_free_head;
         drillrig_free_head->nearest_powerplant = nullptr;
@@ -32640,7 +32197,10 @@ LABEL_151:
             drillrig_free_head->guard_squad = nullptr;
           }
           if ( !drillrig_free_head->guard_squad )
+          {
+            strcpy(g_save_last_error, "squad pool exhausted");
             return 0;
+          }
           SAVE_unpack_squad_node(
             ai,
             (const AiSquadNodeSaveStruct *)p_ai_players_save_struct_14C,
@@ -32650,44 +32210,21 @@ LABEL_151:
           {
             do
             {
-              v59 = ai->attacker_free_head;
-              if ( v59 )
-                ai->attacker_free_head = v59->next;
-              else
-                v59 = nullptr;
-              if ( !v59 )
-                return 0;
+              AI_POP(v59, ai->attacker_free_head, "attacker");
               v60 = *(const int *)p_ai_players_save_struct_184;
               p_ai_players_save_struct_184 = p_ai_players_save_struct_184 + 4;
               data_148_11C = p_ai_players_save_struct_184;
-              if ( v60 == -1 || (v61 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-              {
-LABEL_166:
-                v61 = nullptr;
-              }
-              else
-              {
-                while ( v61->unit_id != v60 )
-                {
-                  v61 = v61->next;
-                  if ( v61 == (Unit *)&g_unit_list_head )
-                    goto LABEL_166;
-                }
-              }
+              v61 = SAVE_find_unit_by_id(v60);
               v59->unit = v61;
               if ( v61 )
               {
                 v59->squad = drillrig_free_head->guard_squad;
                 v59->unit->ai_node_per_side[ai->player_num] = v59;
-                v59->next = drillrig_free_head->guard_squad->attackers_head;
-                v59->prev = (AiAttackerNode *)&drillrig_free_head->guard_squad->attackers_head;
-                drillrig_free_head->guard_squad->attackers_head->prev = v59;
-                drillrig_free_head->guard_squad->attackers_head = v59;
+                LIST_PREPEND(v59, drillrig_free_head->guard_squad->attackers_head, AiAttackerNode);
               }
               else
               {
-                v59->next = ai->attacker_free_head;
-                ai->attacker_free_head = v59;
+                LIST_FREE_PUSH(v59, ai->attacker_free_head);
               }
             }
             while ( ++v119 < *(const int *)p_ai_players_save_struct_14C );
@@ -32705,30 +32242,10 @@ LABEL_166:
               v63 < *p_ai_players_save_struct_17C;
               p_tanker_next->next = tanker_free_head )
         {
-          tanker_free_head = ai->tanker_free_head;
-          if ( tanker_free_head )
-            ai->tanker_free_head = tanker_free_head->next;
-          else
-            tanker_free_head = nullptr;
-          if ( !tanker_free_head )
-            return 0;
+          AI_POP(tanker_free_head, ai->tanker_free_head, "tanker");
           v65 = *(const int *)data_148_11C;
-          v21 = v65 == -1;
           data_148_11C = data_148_11C + 4;
-          if ( v21 || (v66 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-          {
-LABEL_182:
-            v66 = nullptr;
-          }
-          else
-          {
-            while ( v66->unit_id != v65 )
-            {
-              v66 = v66->next;
-              if ( v66 == (Unit *)&g_unit_list_head )
-                goto LABEL_182;
-            }
-          }
+          v66 = SAVE_find_unit_by_id(v65);
           tanker_free_head->unit = v66;
           tanker_free_head->drillrig = drillrig_free_head;
           ++v63;
@@ -32739,35 +32256,15 @@ LABEL_182:
         }
         v50 = v125;
       }
-      while ( v125 < v117->_ai_players_save_struct_1C );
+      while ( v125 < v117->num_drillrig_nodes );
     }
     v67 = v117;
-    for ( k = 0; k < v117->_ai_players_save_struct_20; ai->tanker_head = v69 )
+    for ( k = 0; k < v117->num_tanker_nodes; ai->tanker_head = v69 )
     {
-      v69 = ai->tanker_free_head;
-      if ( v69 )
-        ai->tanker_free_head = v69->next;
-      else
-        v69 = nullptr;
-      if ( !v69 )
-        return 0;
+      AI_POP(v69, ai->tanker_free_head, "tanker");
       v70 = *(const int *)data_148_11C;
-      v21 = v70 == -1;
       data_148_11C = data_148_11C + 4;
-      if ( v21 || (v71 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-      {
-LABEL_194:
-        v71 = nullptr;
-      }
-      else
-      {
-        while ( v71->unit_id != v70 )
-        {
-          v71 = v71->next;
-          if ( v71 == (Unit *)&g_unit_list_head )
-            goto LABEL_194;
-        }
-      }
+      v71 = SAVE_find_unit_by_id(v70);
       v69->unit = v71;
       v69->drillrig = nullptr;
       ++k;
@@ -32777,18 +32274,12 @@ LABEL_194:
       ai->tanker_head->prev = v69;
     }
     v120 = 0;
-    if ( v117->_ai_players_save_struct_2C > 0 )
+    if ( v117->num_attack_squads > 0 )
     {
       while ( 1 )
       {
-        v72 = ai->squad_pool_free_head;
         v73 = data_148_11C;
-        if ( v72 )
-          ai->squad_pool_free_head = v72->next;
-        else
-          v72 = nullptr;
-        if ( !v72 )
-          return 0;
+        AI_POP(v72, ai->squad_pool_free_head, "squad");
         SAVE_unpack_squad_node(
           ai,
           (const AiSquadNodeSaveStruct *)data_148_11C,
@@ -32803,50 +32294,26 @@ LABEL_194:
         {
           do
           {
-            v75 = ai->attacker_free_head;
-            if ( v75 )
-              ai->attacker_free_head = v75->next;
-            else
-              v75 = nullptr;
-            if ( !v75 )
-              return 0;
+            AI_POP(v75, ai->attacker_free_head, "attacker");
             v76 = *(const int *)data_148_11C;
-            v21 = v76 == -1;
             data_148_11C = data_148_11C + 4;
-            if ( v21 || (v77 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-            {
-LABEL_210:
-              v77 = nullptr;
-            }
-            else
-            {
-              while ( v77->unit_id != v76 )
-              {
-                v77 = v77->next;
-                if ( v77 == (Unit *)&g_unit_list_head )
-                  goto LABEL_210;
-              }
-            }
+            v77 = SAVE_find_unit_by_id(v76);
             v75->unit = v77;
             if ( v77 )
             {
               v78 = v75->unit;
               v75->squad = v72;
               v78->ai_node_per_side[ai->player_num] = v75;
-              v75->next = v72->attackers_head;
-              v75->prev = (AiAttackerNode *)&v72->attackers_head;
-              v72->attackers_head->prev = v75;
-              v72->attackers_head = v75;
+              LIST_PREPEND(v75, v72->attackers_head, AiAttackerNode);
             }
             else
             {
-              v75->next = ai->attacker_free_head;
-              ai->attacker_free_head = v75;
+              LIST_FREE_PUSH(v75, ai->attacker_free_head);
             }
           }
           while ( ++v74 < *(const int *)v73 );
         }
-        if ( ++v120 >= v117->_ai_players_save_struct_2C )
+        if ( ++v120 >= v117->num_attack_squads )
         {
           v67 = v117;
           break;
@@ -32854,18 +32321,12 @@ LABEL_210:
       }
     }
     v121 = 0;
-    if ( v67->_ai_players_save_struct_30 > 0 )
+    if ( v67->num_patrol_squads > 0 )
     {
       do
       {
-        v79 = ai->squad_pool_free_head;
         v80 = data_148_11C;
-        if ( v79 )
-          ai->squad_pool_free_head = v79->next;
-        else
-          v79 = nullptr;
-        if ( !v79 )
-          return 0;
+        AI_POP(v79, ai->squad_pool_free_head, "squad");
         SAVE_unpack_squad_node(
           ai,
           (const AiSquadNodeSaveStruct *)data_148_11C,
@@ -32880,51 +32341,27 @@ LABEL_210:
         {
           do
           {
-            v82 = ai->attacker_free_head;
-            if ( v82 )
-              ai->attacker_free_head = v82->next;
-            else
-              v82 = nullptr;
-            if ( !v82 )
-              return 0;
+            AI_POP(v82, ai->attacker_free_head, "attacker");
             v83 = *(const int *)data_148_11C;
-            v21 = v83 == -1;
             data_148_11C = data_148_11C + 4;
-            if ( v21 || (v84 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-            {
-LABEL_231:
-              v84 = nullptr;
-            }
-            else
-            {
-              while ( v84->unit_id != v83 )
-              {
-                v84 = v84->next;
-                if ( v84 == (Unit *)&g_unit_list_head )
-                  goto LABEL_231;
-              }
-            }
+            v84 = SAVE_find_unit_by_id(v83);
             v82->unit = v84;
             if ( v84 )
             {
               v85 = v82->unit;
               v82->squad = v79;
               v85->ai_node_per_side[ai->player_num] = v82;
-              v82->next = v79->attackers_head;
-              v82->prev = (AiAttackerNode *)&v79->attackers_head;
-              v79->attackers_head->prev = v82;
-              v79->attackers_head = v82;
+              LIST_PREPEND(v82, v79->attackers_head, AiAttackerNode);
             }
             else
             {
-              v82->next = ai->attacker_free_head;
-              ai->attacker_free_head = v82;
+              LIST_FREE_PUSH(v82, ai->attacker_free_head);
             }
           }
           while ( ++v81 < *(const int *)v80 );
         }
       }
-      while ( ++v121 < v117->_ai_players_save_struct_30 );
+      while ( ++v121 < v117->num_patrol_squads );
     }
     v86 = ai->squad_pool_free_head;
     if ( v86 )
@@ -32938,57 +32375,36 @@ LABEL_231:
     }
     staging_squad = ai->staging_squad;
     if ( !staging_squad )
+    {
+      strcpy(g_save_last_error, "squad pool exhausted");
       return 0;
-    p_ai_players_save_struct_38 = &v117->_ai_players_save_struct_38;
-    if ( v117->_ai_players_save_struct_38 )
+    }
+    p_ai_players_save_struct_38 = &v117->num_staging_attackers;
+    if ( v117->num_staging_attackers )
     {
       SAVE_unpack_squad_node(
         ai,
-        (const AiSquadNodeSaveStruct *)&v117->_ai_players_save_struct_38,
+        (const AiSquadNodeSaveStruct *)&v117->num_staging_attackers,
         ai->staging_squad);
       v89 = 0;
       if ( *p_ai_players_save_struct_38 > 0 )
       {
         do
         {
-          v90 = ai->attacker_free_head;
-          if ( v90 )
-            ai->attacker_free_head = v90->next;
-          else
-            v90 = nullptr;
-          if ( !v90 )
-            return 0;
+          AI_POP(v90, ai->attacker_free_head, "attacker");
           v91 = *(const int *)data_148_11C;
-          v21 = v91 == -1;
           data_148_11C = data_148_11C + 4;
-          if ( v21 || (v92 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-          {
-LABEL_251:
-            v92 = nullptr;
-          }
-          else
-          {
-            while ( v92->unit_id != v91 )
-            {
-              v92 = v92->next;
-              if ( v92 == (Unit *)&g_unit_list_head )
-                goto LABEL_251;
-            }
-          }
+          v92 = SAVE_find_unit_by_id(v91);
           v90->unit = v92;
           if ( v92 )
           {
             v90->squad = ai->staging_squad;
             v90->unit->ai_node_per_side[ai->player_num] = v90;
-            v90->next = ai->staging_squad->attackers_head;
-            v90->prev = (AiAttackerNode *)&ai->staging_squad->attackers_head;
-            ai->staging_squad->attackers_head->prev = v90;
-            ai->staging_squad->attackers_head = v90;
+            LIST_PREPEND(v90, ai->staging_squad->attackers_head, AiAttackerNode);
           }
           else
           {
-            v90->next = ai->attacker_free_head;
-            ai->attacker_free_head = v90;
+            LIST_FREE_PUSH(v90, ai->attacker_free_head);
           }
         }
         while ( ++v89 < *p_ai_players_save_struct_38 );
@@ -33004,18 +32420,12 @@ LABEL_251:
       ai->staging_squad->total_squad_threat = 0;
     }
     v122 = 0;
-    if ( v117->_ai_players_save_struct_34 > 0 )
+    if ( v117->num_retreat_squads > 0 )
     {
       do
       {
-        v93 = ai->squad_pool_free_head;
         v94 = data_148_11C;
-        if ( v93 )
-          ai->squad_pool_free_head = v93->next;
-        else
-          v93 = nullptr;
-        if ( !v93 )
-          return 0;
+        AI_POP(v93, ai->squad_pool_free_head, "squad");
         SAVE_unpack_squad_node(
           ai,
           (const AiSquadNodeSaveStruct *)data_148_11C,
@@ -33030,69 +32440,39 @@ LABEL_251:
         {
           do
           {
-            v96 = ai->attacker_free_head;
-            if ( v96 )
-              ai->attacker_free_head = v96->next;
-            else
-              v96 = nullptr;
-            if ( !v96 )
-              return 0;
+            AI_POP(v96, ai->attacker_free_head, "attacker");
             v97 = *(const int *)data_148_11C;
-            v21 = v97 == -1;
             data_148_11C = data_148_11C + 4;
-            if ( v21 || (v98 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-            {
-LABEL_272:
-              v98 = nullptr;
-            }
-            else
-            {
-              while ( v98->unit_id != v97 )
-              {
-                v98 = v98->next;
-                if ( v98 == (Unit *)&g_unit_list_head )
-                  goto LABEL_272;
-              }
-            }
+            v98 = SAVE_find_unit_by_id(v97);
             v96->unit = v98;
             if ( v98 )
             {
               v99 = v96->unit;
               v96->squad = v93;
               v99->ai_node_per_side[ai->player_num] = v96;
-              v96->next = v93->attackers_head;
-              v96->prev = (AiAttackerNode *)&v93->attackers_head;
-              v93->attackers_head->prev = v96;
-              v93->attackers_head = v96;
+              LIST_PREPEND(v96, v93->attackers_head, AiAttackerNode);
             }
             else
             {
-              v96->next = ai->attacker_free_head;
-              ai->attacker_free_head = v96;
+              LIST_FREE_PUSH(v96, ai->attacker_free_head);
             }
           }
           while ( ++v95 < *(const int *)v94 );
         }
       }
-      while ( ++v122 < v117->_ai_players_save_struct_34 );
+      while ( ++v122 < v117->num_retreat_squads );
     }
-    ai->base_area_min_x = v117->_ai_players_save_struct_60;
-    ai->base_area_min_y = v117->_ai_players_save_struct_64;
-    ai->base_area_max_x = v117->_ai_players_save_struct_68;
-    ai->base_area_max_y = v117->_ai_players_save_struct_6C;
+    ai->base_area_min_x = v117->base_area_min_x;
+    ai->base_area_min_y = v117->base_area_min_y;
+    ai->base_area_max_x = v117->base_area_max_x;
+    ai->base_area_max_y = v117->base_area_max_y;
     v100 = 0;
-    if ( v117->_ai_players_save_struct_70 > 0 )
+    if ( v117->num_build_orders > 0 )
     {
       v101 = data_148_11C;
       do
       {
-        build_order_free_head = ai->build_order_free_head;
-        if ( build_order_free_head )
-          ai->build_order_free_head = build_order_free_head->next;
-        else
-          build_order_free_head = nullptr;
-        if ( !build_order_free_head )
-          return 0;
+        AI_POP(build_order_free_head, ai->build_order_free_head, "build_order");
         v103 = *(const int *)v101;
         v101 = v101 + 4;
         build_order_free_head->_ai_stru26C_node_8 = v103;
@@ -33102,38 +32482,32 @@ LABEL_272:
         ai->build_order_head->prev = build_order_free_head;
         ai->build_order_head = build_order_free_head;
         v104 = v100 + 1;
-        if ( v117->_ai_players_save_struct_74 == v100 + 1 )
+        if ( v117->build_order_current_index == v100 + 1 )
           ai->build_order_current = build_order_free_head;
         ++v100;
       }
-      while ( v104 < v117->_ai_players_save_struct_70 );
+      while ( v104 < v117->num_build_orders );
     }
-    ai->rally_x = v117->_ai_players_save_struct_78;
-    ai->rally_y = v117->_ai_players_save_struct_7C;
-    memcpy(ai->patrol_waypoints, &v117->_ai_players_save_struct_80, sizeof(ai->patrol_waypoints));
-    ai->player_race = v117->_ai_players_save_struct_A4;
-    ai->attacker_count = v117->_ai_players_save_struct_A8;
-    ai->max_units = v117->_ai_players_save_struct_AC;
-    ai->squad_threshold = v117->_ai_players_save_struct_B0;
-    ai->attack_confidence = v117->_ai_players_save_struct_B4;
-    ai->base_threat = v117->_ai_players_save_struct_B8;
-    ai->max_squad_threat = v117->_ai_players_save_struct_BC;
-    ai->best_patrol_waypoint_idx = v117->_ai_players_save_struct_C0;
-    memcpy(ai->patrol_threat, &v117->_ai_players_save_struct_C4, sizeof(ai->patrol_threat));
+    ai->rally_x = v117->rally_x;
+    ai->rally_y = v117->rally_y;
+    memcpy(ai->patrol_waypoints, &v117->patrol_waypoints, sizeof(ai->patrol_waypoints));
+    ai->player_race = v117->player_race;
+    ai->attacker_count = v117->attacker_count;
+    ai->max_units = v117->max_units;
+    ai->squad_threshold = v117->squad_threshold;
+    ai->attack_confidence = v117->attack_confidence;
+    ai->base_threat = v117->base_threat;
+    ai->max_squad_threat = v117->max_squad_threat;
+    ai->best_patrol_waypoint_idx = v117->best_patrol_waypoint_idx;
+    memcpy(ai->patrol_threat, &v117->patrol_threat, sizeof(ai->patrol_threat));
     v105 = data_148_11C;
     ai->last_unit_produced = v117->last_unit_produced;
-    ai->last_unit_produced_factory = v117->_ai_players_save_struct_DC;
-    ai->tanker_production_in_progress = v117->_ai_players_save_struct_E0;
+    ai->last_unit_produced_factory = v117->last_unit_produced_factory;
+    ai->tanker_production_in_progress = v117->tanker_production_in_progress;
     v106 = 0;
-    for ( m = 0; m < v117->_ai_players_save_struct_E8; data_148_11C = v105 )
+    for ( m = 0; m < v117->num_building_replacements; data_148_11C = v105 )
     {
-      building_replacement_free_head = ai->building_replacement_free_head;
-      if ( building_replacement_free_head )
-        ai->building_replacement_free_head = building_replacement_free_head->next;
-      else
-        building_replacement_free_head = nullptr;
-      if ( !building_replacement_free_head )
-        return 0;
+      AI_POP(building_replacement_free_head, ai->building_replacement_free_head, "building_replacement");
       building_replacement_free_head->unit = nullptr;
       building_replacement_free_head->unit_type = *(const int *)(v105 + 4);  // ->_ai_players_save_struct_14C;
       building_replacement_free_head->unit_x = *(const int *)(v105 + 8);  // ->_ai_players_save_struct_150;
@@ -33144,32 +32518,12 @@ LABEL_272:
       v105 = v105 + 28;
       ++m;
     }
-    if ( v117->_ai_players_save_struct_EC > 0 )
+    if ( v117->num_drillrig_replacements > 0 )
     {
       do
       {
-        v109 = ai->building_replacement_free_head;
-        if ( v109 )
-          ai->building_replacement_free_head = v109->next;
-        else
-          v109 = nullptr;
-        if ( !v109 )
-          return 0;
-        if ( *(const int *)v105 == -1
-          || (v110 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-        {
-LABEL_302:
-          v110 = nullptr;
-        }
-        else
-        {
-          while ( v110->unit_id != *(const int *)v105 )
-          {
-            v110 = v110->next;
-            if ( v110 == (Unit *)&g_unit_list_head )
-              goto LABEL_302;
-          }
-        }
+        AI_POP(v109, ai->building_replacement_free_head, "building_replacement");
+        v110 = SAVE_find_unit_by_id(*(const int *)v105);
         v109->unit = v110;
         v109->unit_type = *(const int *)(v105 + 4); // ->_ai_players_save_struct_14C;
         v109->unit_x = *(const int *)(v105 + 8); // ->_ai_players_save_struct_150;
@@ -33181,13 +32535,13 @@ LABEL_302:
         ++v106;
         data_148_11C = v105;
       }
-      while ( v106 < v117->_ai_players_save_struct_EC );
+      while ( v106 < v117->num_drillrig_replacements );
     }
-    ai->construction_state = v117->_ai_players_save_struct_F0;
-    ai->construction_base_cost = v117->_ai_players_save_struct_F4;
-    ai->construction_countdown = v117->_ai_players_save_struct_FC;
-    ai->construction_cost_per_tick = v117->_ai_players_save_struct_104;
-    ai_players_save_struct_F8 = v117->_ai_players_save_struct_F8;
+    ai->construction_state = v117->construction_state;
+    ai->construction_base_cost = v117->construction_base_cost;
+    ai->construction_countdown = v117->construction_countdown;
+    ai->construction_cost_per_tick = v117->construction_cost_per_tick;
+    ai_players_save_struct_F8 = v117->construction_remaining_cost;
     ai->construction_remaining_cost = ai_players_save_struct_F8;
     if ( ai_players_save_struct_F8 > 0 )
       PROD_enqueue_one_ex(
@@ -33198,42 +32552,30 @@ LABEL_302:
         nullptr,
         nullptr,
         -1);
-    ai_players_save_struct_100 = v117->_ai_players_save_struct_100;
+    ai_players_save_struct_100 = v117->construction_task_unit_id;
     if ( ai_players_save_struct_100 == -1 )
     {
-      ai_players_save_struct_108 = v117->_ai_players_save_struct_108;
+      ai_players_save_struct_108 = v117->construction_task_unit_type;
       if ( ai_players_save_struct_108 == UnitType_Invalid )
         ai->construction_task = nullptr;
       else
         ai->construction_task = ENT_create_by_unit_type(
                                   ai_players_save_struct_108,
-                                  v117->_ai_players_save_struct_10C,
-                                  v117->_ai_players_save_struct_110,
+                                  v117->construction_task_x,
+                                  v117->construction_task_y,
                                   ai->player_num)->task;
     }
     else
     {
-      v114 = g_unit_list_head;
-      if ( g_unit_list_head == (Unit *)&g_unit_list_head )
-      {
-LABEL_313:
-        v114 = nullptr;
-      }
-      else
-      {
-        while ( v114->unit_id != ai_players_save_struct_100 )
-        {
-          v114 = v114->next;
-          if ( v114 == (Unit *)&g_unit_list_head )
-            goto LABEL_313;
-        }
-      }
+      // reached only when ai_players_save_struct_100 != -1 (outer if), so the
+      // helper's -1 short-circuit never triggers here — behaviour is identical.
+      v114 = SAVE_find_unit_by_id(ai_players_save_struct_100);
       ai->construction_task = v114->task;
     }
     data = (const AiPlayersSaveStruct *)data_148_11C;
-    ai->airstrike_interval = v117->_ai_players_save_struct_114;
+    ai->airstrike_interval = v117->airstrike_interval;
     v1 = v124;
-    ai->airstrike_count = v117->_ai_players_save_struct_118;
+    ai->airstrike_count = v117->airstrike_count;
 LABEL_316:
     v124 = ++v1;
     if ( v1 >= 7 )
@@ -33241,48 +32583,29 @@ LABEL_316:
   }
   while ( 1 )
   {
-    enemy_free_head = ai->enemy_free_head;
-    if ( enemy_free_head )
-      ai->enemy_free_head = enemy_free_head->next;
-    else
-      enemy_free_head = nullptr;
-    if ( !enemy_free_head )
-      return 0;
+    AI_POP(enemy_free_head, ai->enemy_free_head, "enemy");
     v12 = *(const int *)p_unit_free_head_unit_id;
     p_unit_free_head_unit_id += 4;
     data_148_11C = p_unit_free_head_unit_id;
-    if ( v12 == -1 || (v13 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
-    {
-LABEL_17:
-      v13 = nullptr;
-    }
-    else
-    {
-      while ( v13->unit_id != v12 )
-      {
-        v13 = v13->next;
-        if ( v13 == (Unit *)&g_unit_list_head )
-          goto LABEL_17;
-      }
-    }
+    v13 = SAVE_find_unit_by_id(v12);
     enemy_free_head->unit = v13;
     if ( v13 )
     {
       enemy_free_head->unit->ai_node_per_side[ai->player_num] = enemy_free_head;
-      enemy_free_head->next = ai->enemy_head;
-      enemy_free_head->prev = (AiEnemyNode *)&ai->enemy_head;
-      ai->enemy_head->prev = enemy_free_head;
-      ai->enemy_head = enemy_free_head;
+      LIST_PREPEND(enemy_free_head, ai->enemy_head, AiEnemyNode);
     }
     else
     {
-      enemy_free_head->next = ai->enemy_free_head;
-      ai->enemy_free_head = enemy_free_head;
+      LIST_FREE_PUSH(enemy_free_head, ai->enemy_free_head);
     }
-    if ( ++v10 >= v5->_ai_players_save_struct_28 )
+    if ( ++v10 >= v5->num_enemy_nodes )
       goto LABEL_22;
   }
 }
+
+#undef AI_POP
+#undef LIST_PREPEND
+#undef LIST_FREE_PUSH
 
 //----- (00420A90) --------------------------------------------------------
 unsigned __int8 *__fastcall SAVE_pack_map_info(int *out_total_tiles)
@@ -33328,7 +32651,7 @@ LABEL_12:
   }
   else
   {
-    g_save_last_error = "memory";
+    strcpy(g_save_last_error, "memory");
   }
   return result;
 }
@@ -33485,26 +32808,26 @@ MetaSaveStruct *__fastcall SAVE_pack_meta(size_t *out_data_size)
           }
           else
           {
-            g_save_last_error = "bad constructs";
+            strcpy(g_save_last_error, "bad constructs");
             free(v5);
             return nullptr;
           }
         }
         else
         {
-          g_save_last_error = "task is wrong type";
+          strcpy(g_save_last_error, "task is wrong type");
           return nullptr;
         }
       }
     }
     else
     {
-      g_save_last_error = "bad mode";
+      strcpy(g_save_last_error, "bad mode");
     }
   }
   else
   {
-    g_save_last_error = "memory";
+    strcpy(g_save_last_error, "memory");
   }
   return result;
 }
@@ -33639,15 +32962,11 @@ LABEL_13:
           task->ctx = v13;
           v13->task->entity = v13->counter;
           v13->counter->task = v13->task;
-          v13->button->is_collidable = 1;
-          v13->button->x = 0x26000;
-          v13->button->is_collidable = 1;
-          v13->button->y = 0x12000;
+          ENT_X(v13->button) = 0x26000;
+          ENT_Y(v13->button) = 0x12000;
           v13->button->z = 2;
-          v13->counter->is_collidable = 1;
-          v13->counter->x = 0x26400;
-          v13->counter->is_collidable = 1;
-          v13->counter->y = 0x13800;
+          ENT_X(v13->counter) = 0x26400;
+          ENT_Y(v13->counter) = 0x13800;
           v13->counter->z = 3;
           v13->counter->rn->transform = (RenderTransform)REND_transform_ui;
           if ( v13->num_airstrikes_available <= 1 )
@@ -33665,33 +32984,34 @@ LABEL_13:
   return result;
 }
 
+// Writes a fixed 4-byte length prefix followed by `size` bytes. Returns non-zero
+// on success. Mirror of GAME_load_read_block (which reads a uint32_t prefix); the
+// explicit uint32_t keeps the on-disk format 4-byte regardless of sizeof(size_t).
+static BOOL GAME_save_write_block(FILE *f, const void *buf, size_t size)
+{
+  uint32_t size32 = (uint32_t)size;
+  return fwrite(&size32, 1u, sizeof(size32), f) && fwrite(buf, 1u, size, f);
+}
+
 //----- (004211D0) --------------------------------------------------------
 BOOL GAME_save()
 {
   UnitSaveIndex *unit_index; // ebp
-  OilPatchSaveStruct *v2; // ebx
   Unit *i; // esi
   size_t unit_save_size; // eax
   UnitType type; // ecx
-  UnitSaveStruct *v6; // eax
-  UnitSaveStruct *v7; // ebp
   Unit *v8; // esi
   UnitSaveStruct *v9; // edi
   UnitSaveIndex * p_size; // ebx
-  AiSquadNodeSaveStruct *v11; // esi
-  void *v12; // edi
-  unsigned __int8 *v13; // ebx
-  FILE *v14; // eax
   FILE *v15; // esi
   Unit *v16; // edi
   UnitSaveIndex *v17; // ebx
   Unit *v18; // ebp
   UnitSaveStruct *v19; // ebx
-  size_t *v20; // edi
   OilPatchSaveStruct *Block; // [esp+10h] [ebp-48h]
   BOOL v22; // [esp+14h] [ebp-44h]
   UnitSaveStruct *v23; // [esp+18h] [ebp-40h]
-  AiSquadNodeSaveStruct *v24; // [esp+1Ch] [ebp-3Ch]
+  void *v24; // [esp+1Ch] [ebp-3Ch]
   void *v25; // [esp+20h] [ebp-38h]
   unsigned __int8 *v26; // [esp+24h] [ebp-34h]
   MetaSaveStruct *v27; // [esp+28h] [ebp-30h]
@@ -33706,30 +33026,35 @@ BOOL GAME_save()
   int v36; // [esp+4Ch] [ebp-Ch] BYREF
   int Buffer[2]; // [esp+50h] [ebp-8h] BYREF
 
+  Block = nullptr;
   v23 = nullptr;
   v24 = nullptr;
   v25 = nullptr;
   v26 = nullptr;
   v27 = nullptr;
+  v28 = nullptr;
   v36 = -1;
   v30 = 0;
   v22 = 0;
   Size = 0;
+
+  // v28 is a parallel array of {unit_id, packed size} for every live unit, in
+  // list order — built here, consumed both to size the packed-unit buffer below
+  // and (unchanged from before this refactor) to drive the on-disk writes.
   unit_index = (UnitSaveIndex *)malloc(0x12B8u);
   v28 = unit_index;
   if ( !unit_index )
   {
     g_last_error = "Couldn't allocate temporary buffer";
-    return 0;
+    goto save_done;
   }
   Buffer[1] = g_mapd_camera.y;
   Buffer[0] = g_mapd_camera.x;
-  v2 = SAVE_pack_oil(&oil_save_size);
-  Block = v2;
-  if ( !v2 )
+  Block = SAVE_pack_oil(&oil_save_size);
+  if ( !Block )
   {
     g_last_error = "Could not save oil information";
-    goto LABEL_40;
+    goto save_done;
   }
   for ( i = g_unit_list_head; i != (Unit *)&g_unit_list_head; i = i->next )
   {
@@ -33737,44 +33062,37 @@ BOOL GAME_save()
     {
       unit_save_size = 748;
       unit_index->unit_id = i->unit_id;
-      if ( i->destroyed )
+      type = i->type;
+      switch ( (unsigned int)type )
       {
-        unit_save_size = 0;
-      }
-      else
-      {
-        type = i->type;
-        switch ( (unsigned int)type )
-        {
-          case UnitType_Surv_Tanker:
-          case UnitType_Mute_Tanker:
-            unit_save_size = 860;
-            break;
-          case UnitType_TankerConvoy:
-            unit_save_size = 760;
-            break;
-          case UnitType_Surv_Drillrig:
-          case UnitType_Mute_Drillrig:
-          case UnitType_Surv_PowerStation:
-          case UnitType_Mute_PowerStation:
-          case UnitType_Surv_DetentionCenter:
-          case UnitType_Mute_HoldingPens:
-          case UnitType_Surv_Outpost:
-          case UnitType_Mute_Clanhall:
-          case UnitType_Surv_MachineShop:
-          case UnitType_Mute_Blacksmith:
-          case UnitType_Mute_BeastEnclosure:
-          case UnitType_Surv_RepairBay:
-          case UnitType_Mute_Menagerie:
-          case UnitType_Surv_ResearchLab:
-          case UnitType_Surv_AlchemyHall:
-            unit_save_size = 776;
-            if ( (type == UnitType_Surv_ResearchLab || type == UnitType_Surv_AlchemyHall) && *((int *)i->state + 2) )
-              unit_save_size = 868;
-            break;
-          default:
-            break;
-        }
+        case UnitType_Surv_Tanker:
+        case UnitType_Mute_Tanker:
+          unit_save_size = 860;
+          break;
+        case UnitType_TankerConvoy:
+          unit_save_size = 760;
+          break;
+        case UnitType_Surv_Drillrig:
+        case UnitType_Mute_Drillrig:
+        case UnitType_Surv_PowerStation:
+        case UnitType_Mute_PowerStation:
+        case UnitType_Surv_DetentionCenter:
+        case UnitType_Mute_HoldingPens:
+        case UnitType_Surv_Outpost:
+        case UnitType_Mute_Clanhall:
+        case UnitType_Surv_MachineShop:
+        case UnitType_Mute_Blacksmith:
+        case UnitType_Mute_BeastEnclosure:
+        case UnitType_Surv_RepairBay:
+        case UnitType_Mute_Menagerie:
+        case UnitType_Surv_ResearchLab:
+        case UnitType_Surv_AlchemyHall:
+          unit_save_size = 776;
+          if ( (type == UnitType_Surv_ResearchLab || type == UnitType_Surv_AlchemyHall) && *((int *)i->state + 2) )
+            unit_save_size = 868;
+          break;
+        default:
+          break;
       }
       unit_index->size = unit_save_size;
       Size += unit_save_size;
@@ -33783,206 +33101,138 @@ BOOL GAME_save()
       ++unit_index;
     }
   }
-  v6 = (UnitSaveStruct *)malloc(Size);
-  v7 = v6;
-  v23 = v6;
-  if ( !v6 )
+
+  v23 = (UnitSaveStruct *)malloc(Size);
+  if ( !v23 )
   {
     g_last_error = "Could not allocate buffer for units";
-    free(v2);
-    goto LABEL_40;
+    goto save_done;
   }
-  v8 = g_unit_list_head;
-  v9 = v6;
-  if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+
+  // Pack each live unit's record into the v23 buffer, back-to-back. Each
+  // record is p_size->size bytes: a fixed 748-byte UnitSaveStruct, plus (for
+  // tanker/convoy/building types) a variable-size trailer SAVE_pack_unit
+  // writes at &data[1] (i.e. data + 748). The write cursor MUST advance by
+  // that same p_size->size, not by sizeof(UnitSaveStruct) — advancing by a
+  // fixed 748 (as `UnitSaveStruct *v9; ...; v9++;` did previously) desyncs the
+  // buffer for every unit after the first one with a trailer, since the next
+  // unit's base struct would be packed on top of the previous unit's trailer
+  // instead of after it. Confirmed sizeof(UnitSaveStruct) == 748, matching
+  // exactly the "no trailer" case, which is why simple missions (no
+  // tanker/convoy/building) never surfaced this.
+  p_size = v28;
+  v9 = v23;
+  for ( v8 = g_unit_list_head; v8 != (Unit *)&g_unit_list_head; v8 = v8->next )
   {
-    p_size = v28;
-    do
+    if ( !v8->destroyed )
     {
-      if ( !v8->destroyed )
+      if ( !SAVE_pack_unit(v8, v9, p_size->size) )
       {
-        if ( !SAVE_pack_unit(v8, v9, p_size->size) )
-        {
-          free(v7);
-          free(Block);
-          g_is_game_saving = 0;
-          g_last_error = "Could not save unit information";
-          return 0;
-        }
-        p_size++;
-        v9++;
+        g_last_error = "Could not save unit information";
+        goto save_done;
       }
-      v8 = v8->next;
+      v9 = (UnitSaveStruct *)((char *)v9 + p_size->size);
+      p_size++;
     }
-    while ( v8 != (Unit *)&g_unit_list_head ); // BUG
-    v2 = Block;
   }
-  v11 = SAVE_pack_ai_players(&v32);
-  v24 = v11;
-  if ( !v11 )
+
+  v24 = SAVE_pack_ai_players(&v32);
+  if ( !v24 )
   {
     g_last_error = "Could not save cpu player information";
-LABEL_33:
-    free(v7);
-    free(v2);
-    goto LABEL_40;
+    goto save_done;
   }
-  v12 = SAVE_pack_prod(&v33);
-  v25 = v12;
-  if ( !v12 )
+  v25 = SAVE_pack_prod(&v33);
+  if ( !v25 )
   {
     g_last_error = "Could not save production information";
-    free(v11);
-    goto LABEL_33;
+    goto save_done;
   }
-  v13 = SAVE_pack_map_info(&num_shroud_tiles);
-  v26 = v13;
-  if ( v13 )
-  {
-    v27 = SAVE_pack_meta(&data);
-    if ( v27 )
-    {
-      v22 = 1;
-    }
-    else
-    {
-      g_last_error = "Could not save miscellaneous information";
-      free(v13);
-      free(v12);
-      free(v11);
-      free(v7);
-      free(Block);
-    }
-  }
-  else
+  v26 = SAVE_pack_map_info(&num_shroud_tiles);
+  if ( !v26 )
   {
     g_last_error = "Could not save map information";
-    free(v12);
-    free(v11);
-    free(v7);
-    free(Block);
+    goto save_done;
   }
-  v2 = Block;
-LABEL_40:
-  if ( !v22 )
+  v27 = SAVE_pack_meta(&data);
+  if ( !v27 )
   {
-LABEL_80:
-    g_is_game_saving = 0;
-    free(v28);
-    return v22;
+    g_last_error = "Could not save miscellaneous information";
+    goto save_done;
   }
-  v22 = 0;
+
   SetFileAttributesA(g_current_savegame_filename, 0x80u);
-  v14 = fopen(g_current_savegame_filename, "wb");
-  v15 = v14;
-  if ( !v14 )
+  v15 = fopen(g_current_savegame_filename, "wb");
+  if ( !v15 )
   {
-    g_is_game_saving = 0;
     g_last_error = "couldn't open save-game file";
-    return 0;
+    goto save_done;
   }
-  if ( !fwrite(&g_player_num, 1u, 4u, v14)
+
+  // header: player, cash, diplomacy, camera; then the oil block
+  if ( !fwrite(&g_player_num, 1u, 4u, v15)
     || !fwrite(&g_cash, 1u, 0x1Cu, v15)
     || !fwrite(&g_diplomacy, 1u, 0xC4u, v15)
     || !fwrite(Buffer, 1u, 8u, v15)
-    || !fwrite(&oil_save_size, 1u, 4u, v15)
-    || !fwrite(v2, 1u, oil_save_size, v15) )
+    || !GAME_save_write_block(v15, Block, oil_save_size) )
   {
-    goto LABEL_78;
+    goto save_write_error;
   }
-  free(v2);
-  v16 = g_unit_list_head;
-  if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+
+  // one unit id per live unit, then the -1 terminator and the max record size
+  v17 = v28;
+  for ( v16 = g_unit_list_head; v16 != (Unit *)&g_unit_list_head; v16 = v16->next )
   {
-    v17 = v28;
-    do
+    if ( !v16->destroyed )
     {
-      if ( !v16->destroyed )
-      {
-        if ( !fwrite(v17, 1u, 4u, v15) )
-        {
-          free(v27);
-          free(v26);
-          free(v25);
-          free(v24);
-          free(v23);
-          goto LABEL_68;
-        }
-        ++v17;
-      }
-      v16 = v16->next;
+      if ( !fwrite(&v17->unit_id, 1u, 4u, v15) )
+        goto save_write_error;
+      ++v17;
     }
-    while ( v16 != (Unit *)&g_unit_list_head );
   }
   if ( !fwrite(&v36, 1u, 4u, v15) || !fwrite(&v30, 1u, 4u, v15) )
-  {
-LABEL_78:
-    fclose(v15);
-    if ( !v22 )
-      g_last_error = "couldn't write to save-game file";
-    goto LABEL_80;
-  }
-  v18 = g_unit_list_head;
+    goto save_write_error;
+
+  // one length-prefixed record per live unit, in list order
+  v17 = v28;
   v19 = v23;
-  if ( g_unit_list_head == (Unit *)&g_unit_list_head )
+  for ( v18 = g_unit_list_head; v18 != (Unit *)&g_unit_list_head; v18 = v18->next )
   {
-LABEL_69:
-    free(v23);
-    if ( fwrite(&v32, 1u, 4u, v15) )
+    if ( !v18->destroyed )
     {
-      if ( fwrite(v24, 1u, v32, v15) )
-      {
-        free(v24);
-        if ( fwrite(&v33, 1u, 4u, v15) )
-        {
-          if ( fwrite(v25, 1u, v33, v15) )
-          {
-            free(v25);
-            if ( fwrite(&num_shroud_tiles, 1u, 4u, v15) )
-            {
-              if ( fwrite(v26, 1u, num_shroud_tiles, v15) )
-              {
-                free(v26);
-                if ( fwrite(&data, 1u, 4u, v15) )
-                {
-                  if ( fwrite(v27, 1u, data, v15) )
-                  {
-                    free(v27);
-                    v22 = 1;
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+      if ( !GAME_save_write_block(v15, v19, v17->size) )
+        goto save_write_error;
+      v19 = (UnitSaveStruct *)((char *)v19 + v17->size);
+      ++v17;
     }
-    goto LABEL_78;
   }
-  v20 = &v28->size;
-  while ( v18->destroyed )
+
+  // ai players, production, shroud, meta
+  if ( !GAME_save_write_block(v15, v24, v32)
+    || !GAME_save_write_block(v15, v25, v33)
+    || !GAME_save_write_block(v15, v26, num_shroud_tiles)
+    || !GAME_save_write_block(v15, v27, data) )
   {
-LABEL_65:
-    v18 = v18->next;
-    if ( v18 == (Unit *)&g_unit_list_head )
-      goto LABEL_69;
+    goto save_write_error;
   }
-  if ( fwrite(v20, 1u, 4u, v15) && fwrite(v19, 1u, *v20, v15) )
-  {
-    v19 = (UnitSaveStruct *)((char *)v19 + *v20);
-    v20 += 2;
-    goto LABEL_65;
-  }
-  free(v27);
-  free(v26);
+  v22 = 1;
+  fclose(v15);
+  goto save_done;
+
+save_write_error:
+  g_last_error = "couldn't write to save-game file";
+  fclose(v15);
+
+save_done:
+  g_is_game_saving = 0;
+  free(v28);
+  free(Block);
+  free(v23);
   free(v24);
   free(v25);
-  free(v23);
-  free(Block);
-LABEL_68:
-  fclose(v15);
-  g_is_game_saving = 0;
-  return 0;
+  free(v26);
+  free(v27);
+  return v22;
 }
 
 // Reads a 4-byte length prefix, allocates that many bytes, and reads the block
@@ -33994,17 +33244,35 @@ static void *GAME_load_read_block(FILE *f)
   void *buf;
 
   if(!fread(&size, 1u, sizeof(size), f)) {
+    strcpy(g_save_last_error, "truncated block header");
     return nullptr;
   }
   buf = malloc(size);
   if(!buf) {
+    strcpy(g_save_last_error, "out of memory");
     return nullptr;
   }
   if(!fread(buf, 1u, size, f)) {
+    strcpy(g_save_last_error, "truncated block data");
     free(buf);
     return nullptr;
   }
   return buf;
+}
+
+// Records a load-failure reason into g_save_last_error. If a lower level already
+// left a leaf reason there (the buffer is cleared at load start), `context` is
+// prefixed to it as "context: leaf"; otherwise `context` is used alone.
+static void GAME_load_fail(const char *context)
+{
+  if(g_save_last_error[0]) {
+    char leaf[256];
+    strncpy(leaf, g_save_last_error, sizeof(leaf) - 1);
+    leaf[sizeof(leaf) - 1] = 0;
+    snprintf(g_save_last_error, sizeof(g_save_last_error), "%s: %s", context, leaf);
+  } else {
+    snprintf(g_save_last_error, sizeof(g_save_last_error), "%s", context);
+  }
 }
 
 //----- (004218B0) --------------------------------------------------------
@@ -34014,8 +33282,11 @@ BOOL GAME_load()
   FILE *f;
   int camera[2];
 
+  g_save_last_error[0] = 0;   // cleared so leaf reasons can be detected/accumulated
+
   cursor = ENT_find_by_mobd_id(MobdId_Cursors);
   if(!cursor || !cursor->task) {
+    GAME_load_fail("cursor entity/task missing");
     g_is_game_loading = 0;
     return 0;
   }
@@ -34025,6 +33296,7 @@ BOOL GAME_load()
 
   f = fopen(g_current_savegame_filename, "rb");
   if(!f) {
+    GAME_load_fail("cannot open save file");
     g_is_game_loading = 0;
     return 0;
   }
@@ -34033,6 +33305,7 @@ BOOL GAME_load()
     || !fread(&g_cash, 1u, 0x1Cu, f)
     || !fread(&g_diplomacy, 1u, 0xC4u, f)
     || !fread(camera, 1u, 8u, f)) {
+    GAME_load_fail("truncated header");
     goto fail;
   }
   g_mapd_camera.x = camera[0];
@@ -34041,9 +33314,11 @@ BOOL GAME_load()
   {
     OilPatchSaveStruct *oil = (OilPatchSaveStruct *)GAME_load_read_block(f);
     if(!oil) {
+      GAME_load_fail("reading oil patches");
       goto fail;
     }
     if(!SAVE_unpack_oil(oil)) {
+      GAME_load_fail("corrupt oil-patch data");
       free(oil);
       goto fail;
     }
@@ -34054,12 +33329,14 @@ BOOL GAME_load()
     int32_t unit_id;
 
     if(!fread(&unit_id, 1u, sizeof(unit_id), f)) {
+      GAME_load_fail("truncated unit-id list");
       goto fail;
     }
     while(unit_id != -1) {
       Unit *unit = g_unit_free_head;
       if(!unit) {
-        goto fail;                          // out of free unit slots
+        GAME_load_fail("out of free unit slots");
+        goto fail;
       }
       g_unit_free_head = unit->next;
       unit->unit_id = unit_id;
@@ -34073,6 +33350,7 @@ BOOL GAME_load()
       tail->next->prev = unit;
       tail->next = unit;
       if(!fread(&unit_id, 1u, 4u, f)) {
+        GAME_load_fail("truncated unit-id list");
         goto fail;
       }
     }
@@ -34087,16 +33365,19 @@ BOOL GAME_load()
     Unit *unit;
 
     if(!fread(&size, 1u, sizeof(size), f)) {
+      GAME_load_fail("truncated unit records");
       goto fail;
     }
     record = (UnitSaveStruct *)malloc(size);
     if(!record) {
+      GAME_load_fail("out of memory");
       goto fail;
     }
     for(unit = g_unit_list_head; unit != END(g_unit_list_head); unit = unit->next) {
       if(!fread(&size, 1u, sizeof(size), f)
         || !fread(record, 1u, size, f)
         || !SAVE_unpack_unit(unit, record)) {
+        GAME_load_fail("corrupt unit record");
         free(record);
         goto fail;
       }
@@ -34112,9 +33393,11 @@ BOOL GAME_load()
   {
     AiPlayersSaveStruct *ai = (AiPlayersSaveStruct *)GAME_load_read_block(f);
     if(!ai) {
+      GAME_load_fail("reading AI players");
       goto fail;
     }
     if(!SAVE_unpack_ai_players(ai)) {
+      GAME_load_fail("corrupt AI-player data");
       free(ai);
       goto fail;
     }
@@ -34124,9 +33407,11 @@ BOOL GAME_load()
   {
     int *prod = (int *)GAME_load_read_block(f);
     if(!prod) {
+      GAME_load_fail("reading production queues");
       goto fail;
     }
     if(!SAVE_unpack_prod(prod)) {
+      GAME_load_fail("corrupt production data");
       free(prod);
       goto fail;
     }
@@ -34138,6 +33423,7 @@ BOOL GAME_load()
   {
     char *shroud = (char *)GAME_load_read_block(f);
     if(!shroud) {
+      GAME_load_fail("reading shroud");
       goto fail;
     }
     int cell_count = (g_map_num_tiles_y + 4) * (g_map_num_tiles_x + 4);
@@ -34156,9 +33442,11 @@ BOOL GAME_load()
   {
     MetaSaveStruct *meta = (MetaSaveStruct *)GAME_load_read_block(f);
     if(!meta) {
+      GAME_load_fail("reading metadata");
       goto fail;
     }
     if(!SAVE_unpack_meta(meta)) {
+      GAME_load_fail("corrupt metadata");
       free(meta);
       goto fail;
     }
@@ -34293,21 +33581,20 @@ LABEL_11:
       switch ( message )
       {
         case TaskMessage_ReceiveDamage:
-          UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_machine_shop_on_death);
+          UNIT_apply_damage_ex(unit, payload, UNIT_mode_machine_shop_on_death);
           UNIT_building_status_bar_update_health(unit);
           break;
         case TaskMessage_Sabotage:
-          UNIT_sabotage(unit, (Unit *)payload, UNIT_mode_machine_shop_on_death);
+          UNIT_sabotage(unit, payload, UNIT_mode_machine_shop_on_death);
           break;
         case TaskMessage_Destroy:
-          UNIT_destroy((Unit *)receiver->ctx, UNIT_mode_machine_shop_on_death);
+          UNIT_on_destroy(receiver->ctx, UNIT_mode_machine_shop_on_death);
           break;
         case TaskMessage_UnitReady:
-          unit->entity->is_collidable = 1;
           if ( ENT_create_by_unit_type(
                  (UnitType)payload,
-                 unit->mobd_anchors.rally->x + unit->entity->x,
-                 unit->mobd_anchors.rally->y + unit->entity->y,
+                 unit->mobd_anchors.rally->x + ENT_X(unit->entity),
+                 unit->mobd_anchors.rally->y + ENT_Y(unit->entity),
                  unit->player_num) )
           {
             if ( g_player_num == unit->player_num )
@@ -34660,7 +33947,8 @@ BOOL GAME_splash()
   PAL_apply(mapd[MenuId_Main].layers[0].palette);
   g_mapd_layers_rns[0] = LVL_get_mapd(MenuId_Main, 0, 0);
   g_mapd_camera.y = 0x1EA00;
-  splash_ticks = 180;
+  //splash_ticks = 180;
+  splash_ticks = 1;
   do
   {
     REND_frame_draw();
@@ -35097,7 +34385,7 @@ void GAME_mission_load()
       LVL_cleanup();
       NETZ_shutdown();
       SYS_shutdown();
-      printf("LoadGameState() failed\n");
+      printf("GAME_load() failed: %s\n", g_save_last_error);
       exit(0);
     }
     g_game_loop = GameLoop_Continue;
@@ -35180,7 +34468,6 @@ BOOL GAME_post_campaign_mission()
   }
   return 0;
 }
-// 423342: variable 'v1' is possibly undefined
 
 //----- (00423460) --------------------------------------------------------
 int KKND_Main()
@@ -36070,10 +35357,6 @@ void __fastcall MISSION_save_campaign_progress(const char *filename)
   }
 }
 
-// Helper inlined at three call sites in GAME_parse_stats_table for the
-// damage_to_infantry / damage_to_vehicles / damage_to_buildings fields.
-// The damage is written to the unit's attachment->projectile_type when present,
-// otherwise to the unit's own projectile.
 static inline void parse_proj_damage(
   UnitStats *unit_stats,
   const char *unit_tag,
@@ -36376,22 +35659,13 @@ LABEL_105:
 }
 
 //----- (00424B90) --------------------------------------------------------
-void __cdecl CPLC_multi_tech_bunker_spawn_positions(Task *task)
-{
-  int v1; // eax
-  int y; // edx
-
-  if ( g_multi_num_bunker_spawn_positions < 12 )
-  {
-    task->entity->is_collidable = 1;
-    v1 = g_multi_num_bunker_spawn_positions;
-    g_multi_bunker_spawn_positions[g_multi_num_bunker_spawn_positions].x = task->entity->x;
-    y = task->entity->y;
-    g_multi_num_bunker_spawn_positions = v1 + 1;
-    _bug_47A2FC_neg1_index[2 * v1 + 2] = y;     // BUG -1 index
+void __cdecl CPLC_multi_tech_bunker_spawn_positions(Task *task) {
+  if (g_multi_num_bunker_spawn_positions < 12) {
+    g_multi_bunker_spawn_positions[g_multi_num_bunker_spawn_positions].x = ENT_X(task->entity);
+    g_multi_bunker_spawn_positions[g_multi_num_bunker_spawn_positions].y = ENT_Y(task->entity);
+    ++g_multi_num_bunker_spawn_positions;
   }
-  ENT_remove(task->entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00424BF0) --------------------------------------------------------
@@ -36402,11 +35676,10 @@ void __cdecl CPLC_multi_player_spawn_positions(Task *task)
   int player_side_or_spawn_table_idx; // edx
   Task *i; // eax
 
-  task->entity->is_collidable = 1;
   v1 = g_multi_num_player_spawn_positions;
   v2 = g_multi_num_player_spawn_positions + 1;
-  g_multi_player_spawn_positions[v1].x = task->entity->x;
-  g_multi_player_spawn_positions[v1].y = task->entity->y;
+  g_multi_player_spawn_positions[v1].x = ENT_X(task->entity);
+  g_multi_player_spawn_positions[v1].y = ENT_Y(task->entity);
   player_side_or_spawn_table_idx = task->entity->cplc_spawn_params->player_side_or_spawn_table_idx;
   g_multi_num_player_spawn_positions = v2;
   g_multi_player_spawn_positions[v1].player_side = player_side_or_spawn_table_idx;
@@ -36417,8 +35690,7 @@ void __cdecl CPLC_multi_player_spawn_positions(Task *task)
       TSK_yield(task, TaskWait_Interval, 1);
     TSK_send_message(nullptr, TaskMessage_SidebarForceClose, nullptr, i);
   }
-  ENT_remove(task->entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00424CA0) --------------------------------------------------------
@@ -36536,12 +35808,7 @@ LABEL_10:
   g_mission_outcome = MissionOutcome_Victory;
   goto LABEL_10;
 }
-// 424DB8: variable 'v8' is possibly undefined
 
-// Predicate inlined throughout MISSION_victory_conditions_*: a unit counts
-// toward a player's win/loss state only when it's a regular combatant or
-// production building. Neutral map decor (tech bunker, hut, walls) and
-// helper sub-units (UnitType >= 79) are excluded.
 static inline bool MISSION_unit_counts_for_victory(UnitType type)
 {
   return (int)type <= (int)UnitType_Surv_AlchemyHall
@@ -37110,31 +36377,26 @@ Unit *__fastcall UNIT_find_player_unit_in_radius(Unit *unit, int radius)
   Entity *v5; // ecx
   int v6; // esi
   bool v7; // cc
-  Entity *v8; // esi
   int dx; // ecx
   int v10; // esi
   int dy; // edi
   int y; // [esp+10h] [ebp-4h]
 
-  unit->entity->is_collidable = 1;
   entity = unit->entity;
   result = g_unit_list_head;
-  x = entity->x;
-  y = entity->y;
-  if ( g_unit_list_head == (Unit *)&g_unit_list_head )
+  x = ENT_X(entity);
+  y = ENT_Y(entity);
+  if ( g_unit_list_head == END(g_unit_list_head))
     return nullptr;
   while ( 1 )
   {
     if ( !result->destroyed && result->player_num == g_player_num )
     {
-      result->entity->is_collidable = 1;
       v5 = result->entity;
-      v6 = v5->x;
-      v5->is_collidable = 1;
+      v6 = ENT_X(v5);
       v7 = v6 - x <= 0;
-      v8 = result->entity;
-      dx = v7 ? x - v8->x : v8->x - x;
-      v10 = v8->y;
+      dx = v7 ? x - ENT_X(v5) : ENT_X(v5) - x;
+      v10 = ENT_Y(v5);
       dy = v10 - y;
       if ( v10 - y <= 0 )
         dy = y - v10;
@@ -37142,7 +36404,7 @@ Unit *__fastcall UNIT_find_player_unit_in_radius(Unit *unit, int radius)
         break;
     }
     result = result->next;
-    if ( result == (Unit *)&g_unit_list_head )
+    if ( result == END(g_unit_list_head))
       return nullptr;
   }
   return result;
@@ -37306,10 +36568,9 @@ void __cdecl MISSION_unque_victory_watch(Task *task)
         do
           TSK_yield(task, TaskWait_Interval, 30);
         while ( !g_scout );
-        g_scout->entity->is_collidable = 1;
         entity = g_scout->entity;
-        x = entity->x;
-        y = entity->y;
+        x = ENT_X(entity);
+        y = ENT_Y(entity);
       }
       while ( x <= 0x8A00 || x >= 0xEA00 || y <= 0x5C500 || y >= 0x62500 );
       v4 = g_mission_outcome_task;
@@ -37321,7 +36582,7 @@ void __cdecl MISSION_unque_victory_watch(Task *task)
       {
         TSK_yield(task, TaskWait_Interval, 30);
         v5 = g_unit_list_head;
-        if ( g_unit_list_head == (Unit *)&g_unit_list_head )
+        if ( g_unit_list_head == END(g_unit_list_head))
           break;
         while ( 1 )
         {
@@ -37339,7 +36600,7 @@ void __cdecl MISSION_unque_victory_watch(Task *task)
             }
           }
           v5 = v5->next;
-          if ( v5 == (Unit *)&g_unit_list_head )
+          if ( v5 == END(g_unit_list_head))
             goto LABEL_16;
         }
       }
@@ -37350,19 +36611,18 @@ LABEL_16:
         v9 = 1;
         TSK_yield(task, TaskWait_Interval, 30);
         v10 = g_unit_list_head;
-        if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+        if ( g_unit_list_head != END(g_unit_list_head))
         {
           while ( 1 )
           {
             if ( v10->player_num == g_player_num )
             {
-              v10->entity->is_collidable = 1;
               v11 = v10->entity;
-              if ( v11->x > 0x12C00 || v11->y <= 0x93800 )
+              if ( ENT_X(v11) > 0x12C00 || ENT_Y(v11) <= 0x93800 )
                 break;
             }
             v10 = v10->next;
-            if ( v10 == (Unit *)&g_unit_list_head )
+            if ( v10 == END(g_unit_list_head))
               goto LABEL_24;
           }
           v9 = 0;
@@ -37383,14 +36643,13 @@ LABEL_24:
         while ( !g_scout );
         v12 = g_unit_list_head;
         num_tankers_left = 0;
-        for ( i = 0; v12 != (Unit *)&g_unit_list_head; v12 = v12->next )
+        for ( i = 0; v12 != END(g_unit_list_head); v12 = v12->next )
         {
           if ( v12->type == UnitType_Mute_Tanker )
           {
             ++num_tankers_left;
-            v12->entity->is_collidable = 1;
             v15 = v12->entity;
-            if ( v15->x <= 0x1D000 && v15->y >= 0x65200 )
+            if ( ENT_X(v15) <= 0x1D000 && ENT_Y(v15) >= 0x65200 )
               ++i;
           }
         }
@@ -37412,19 +36671,18 @@ LABEL_24:
       {
         TSK_yield(task, TaskWait_Interval, 30);
         v17 = g_unit_list_head;
-        if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+        if ( g_unit_list_head != END(g_unit_list_head))
         {
           while ( 1 )
           {
             if ( v17->type == UnitType_Surv_ElPresidente )
             {
-              v17->entity->is_collidable = 1;
               v18 = v17->entity;
-              if ( v18->x >= 0xD3A00 && v18->y >= 0x76600 )
+              if ( ENT_X(v18) >= 0xD3A00 && ENT_Y(v18) >= 0x76600 )
                 break;
             }
             v17 = v17->next;
-            if ( v17 == (Unit *)&g_unit_list_head )
+            if ( v17 == END(g_unit_list_head))
               goto LABEL_48;
           }
           v16 = 1;
@@ -37926,16 +37184,13 @@ void __cdecl MISSION_x_mark_blink_task(Task *task)
   entity = task->entity;
   entity->rn->transform = (RenderTransform)REND_transform_ui;
   entity->z = 5;
-  entity->is_collidable = 1;
   v2 = g_rend_screen_width;
-  entity->is_collidable = 1;
-  entity->x = v2 << 7;
-  entity->y = g_rend_screen_height << 7;
+  ENT_X(entity) = v2 << 7;
+  ENT_Y(entity) = g_rend_screen_height << 7;
   entity->collider = &g_null_collision;
   ENT_anim_set(entity, g_current_lvl_id != LevelId_Mute_04_RaidTheFort ? 852 : 868);
   TSK_yield(task, TaskWait_Interval, 600);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 void __fastcall XMark_mode_default(XMark *) {
@@ -37968,20 +37223,17 @@ void __cdecl MISSION_x_mark_task(Task *task)
       switch ( g_current_lvl_id )
       {
         case LevelId_Surv_04_RescueTheScout:
-          entity->x = 0xBA00;
-          entity->is_collidable = 1;
-          entity->y = 0x5F500;
+          ENT_X(entity) = 0xBA00;
+          ENT_Y(entity) = 0x5F500;
           break;
         case LevelId_Surv_06_ExterminateTheVillage:
-          entity->x = 0x9600;
-          entity->is_collidable = 1;
-          entity->y = 0x99800;
+          ENT_X(entity) = 0x9600;
+          ENT_Y(entity) = 0x99800;
           x_mark->mode(x_mark);
           return;
         case LevelId_Mute_04_RaidTheFort:
-          entity->x = 0xE800;
-          entity->is_collidable = 1;
-          entity->y = 0x71A00;
+          ENT_X(entity) = 0xE800;
+          ENT_Y(entity) = 0x71A00;
           x_mark->mode(x_mark);
           return;
         default:
@@ -38007,11 +37259,10 @@ BOOL __fastcall ENT_create_ai_wanderer_by_unit_type(UnitType unit_type, int x, i
   if ( result )
   {
     v7 = (void *)(unit_type | (player_num << 16));
-    result->x = x;
+    ENT_X(result) = x;
     BYTE1(v7) = BYTE1(unit_type) | 0x80;        // (UnitPathFlags_AiWanderer << 8)
                                                 // in UNIT_create, ctx1&0x8000 leads to path_flags|=UnitPathFlags_AiWanderer
-    result->is_collidable = 1;
-    result->y = y;
+    ENT_Y(result) = y;
     result->cplc_meta = nullptr;
     result->ctx1 = v7;
     return 1;
@@ -38088,9 +37339,8 @@ void __fastcall MISSION_mode_reinforcement_spawn_unit(ReinforcementsState *state
            nullptr);
     if ( v6 )
     {
-      v6->is_collidable = 1;
-      v6->x = spawn_x;
-      v6->y = spawn_y;
+      ENT_X(v6) = spawn_x;
+      ENT_Y(v6) = spawn_y;
       v6->cplc_meta = nullptr;
       v6->ctx1 = (void *)(unit_type | (enemy_player_num << 16) | 0x8000);
     }
@@ -38129,10 +37379,9 @@ void __cdecl MISSION_reinforcements_task(Task *task)
     return;
   }
   entity = task->entity;
-  y = entity->y;
+  y = ENT_Y(entity);
   player_side_or_spawn_table_idx = entity->cplc_spawn_params->player_side_or_spawn_table_idx;
-  entity->is_collidable = 1;
-  x = task->entity->x;
+  x = ENT_X(task->entity);
   cmd = &g_mapd_layers_rns[0]->rn->cmd;
   if ( x < (int)(((unsigned int)REND_get_width(cmd) + 0xFFFFC0) << 8) )
   {
@@ -38452,19 +37701,8 @@ void __fastcall ENT_remove_with_task(Entity *entity)
     TSK_kill(task);
     entity->task = nullptr;
   }
-  rn = entity->rn;                              // INLINED 426F40 ENT_remove
-  if ( rn )
-    rn->flags |= RenderNode_Deleted;
-  cplc_meta = entity->cplc_meta;
-  if ( cplc_meta && cplc_meta->spawn_params.entity == entity )
-    cplc_meta->spawn_params.entity = nullptr;
-  cplc_view = entity->cplc_view;
-  if ( cplc_view )
-    CPLC_viewport_remove(cplc_view);
-  entity->prev->next = entity->next;
-  entity->next->prev = entity->prev;
-  entity->next = g_entity_free_pool_head;
-  g_entity_free_pool_head = entity;
+
+  ENT_remove(entity);
 }
 
 //----- (00427000) --------------------------------------------------------
@@ -39230,26 +38468,22 @@ void __fastcall UNIT_mobile_base_plant(Unit *unit)
       unit->entity->mobd_id = MobdId_Mute_Clanhall;
     }
     ENT_anim_set(unit->entity, 0);
-    unit->entity->is_collidable = 1;
-    unit->entity->is_collidable = 1;
     v9 = unit->entity;
     x = unit->mobd_anchors.grid->x;
-    v11 = v9->x;
+    v11 = ENT_X(v9);
     if ( v7 == UnitType_Surv_Outpost )
     {
-      v9->x = ((v11 + x) & 0xFFFFE000) - x + 2048;
-      unit->entity->is_collidable = 1;
+      ENT_X(v9) = ((v11 + x) & 0xFFFFE000) - x + 2048;
       v12 = unit->entity;
-      v13 = ((v12->y + unit->mobd_anchors.grid->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+      v13 = ((ENT_Y(v12) + unit->mobd_anchors.grid->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
     }
     else
     {
-      v9->x = ((v11 + x) & 0xFFFFE000) - x + 7936;
-      unit->entity->is_collidable = 1;
+      ENT_X(v9) = ((v11 + x) & 0xFFFFE000) - x + 7936;
       v12 = unit->entity;
-      v13 = ((v12->y + unit->mobd_anchors.grid->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 3328;
+      v13 = ((ENT_Y(v12) + unit->mobd_anchors.grid->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 3328;
     }
-    v12->y = v13;
+    ENT_Y(v12) = v13;
     task = unit->task;
     unit->mode = UNIT_mobile_base_post_plant;
     TSK_yield(task, TaskWait_AnimCompletion, 0);
@@ -39804,36 +39038,19 @@ BOOL INPUT_mouse_init()
 }
 
 //----- (004283A0) --------------------------------------------------------
-BOOL __fastcall INPUT_set_mouse_pos(__int16 x, __int16 y)
-{
-  int y_low; // esi
-  int v4; // edi
-  Coroutine *v5; // et1
-  Coroutine *v6; // et1
-  int v7; // [esp-8h] [ebp-14h] BYREF
-  int v8; // [esp+0h] [ebp-Ch]
-  struct tagPOINT Point; // [esp+4h] [ebp-8h] BYREF
+bool INPUT_set_mouse_pos(int x, int y) {
+  if (!g_input_mouse_window_losing_focus_reset_to_defaults)
+    return false;
 
-  LOWORD(v8) = y;
-  LOWORD(Point.y) = x;
-  if ( !g_input_mouse_window_losing_focus_reset_to_defaults )
-    return 0;
-  y_low = LOWORD(Point.y);
-  v4 = (unsigned __int16)v8;
-  Point.x = LOWORD(Point.y);
-  Point.y = (unsigned __int16)v8;
-  g_coroutine_eax = g_input_mouse_window_losing_focus_reset_to_defaults;
-  v5 = g_coroutine_current;
-  if ( g_coroutine_list_head != v5 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v7;
-  ClientToScreen(g_hwnd, &Point);
-  g_coroutine_eax = SetCursorPos(Point.x, Point.y);
-  v6 = g_coroutine_current;
-  if ( g_coroutine_list_head != v6 )
-    --g_coroutine_nesting_depth;
-  g_mouse_state.cursor_x = y_low << 8;
-  g_mouse_state.cursor_y = v4 << 8;
-  return 1;
+  POINT pt = {.x = x, .y = y};
+  COROUTINE_RUN_ON_MAIN_STACK({
+    ClientToScreen(g_hwnd, &pt);
+    SetCursorPos(pt.x, pt.y);
+  });
+
+  g_mouse_state.cursor_x = x << 8;
+  g_mouse_state.cursor_y = y << 8;
+  return true;
 }
 
 //----- (00428470) --------------------------------------------------------
@@ -40251,8 +39468,7 @@ LABEL_30:
                 if ( v7 )
                 {
 LABEL_165:
-                  cursor.cursor_hitbox_tester->is_collidable = 1;
-                  if ( SHROUD_is_revealed(cursor.cursor_hitbox_tester->x, cursor.cursor_hitbox_tester->y)
+                  if ( SHROUD_is_revealed(ENT_X(cursor.cursor_hitbox_tester), ENT_Y(cursor.cursor_hitbox_tester))
                     && cursor.hovered_unit_task
                     && !g_netz_sync_pause
                     && g_game_mouse_state.cursor_x < (g_rend_screen_width - 32) << 8 )
@@ -40326,8 +39542,7 @@ LABEL_165:
                     }
                     if ( (g_game_mouse_state.new_actions_mask & Mouse_LButton) != 0 && !g_netz_sync_pause )
                     {
-                      cursor.cursor_hitbox_tester->is_collidable = 1;
-                      CURSOR_box_select(&cursor, cursor.cursor_hitbox_tester->x, cursor.cursor_hitbox_tester->y);
+                      CURSOR_box_select(&cursor, ENT_X(cursor.cursor_hitbox_tester), ENT_Y(cursor.cursor_hitbox_tester));
                     }
                   }
                   else if ( cursor.cursor_mobd_offset != MOBD_CURSOR_DEFAULT_ARROW )// INLINED 429C20 CURSOR_anim_set
@@ -40437,8 +39652,7 @@ LABEL_165:
             }
           }
           else if ( cursor.hovered_unit_task
-                 && (cursor.cursor_hitbox_tester->is_collidable = 1,
-                     SHROUD_is_revealed(cursor.cursor_hitbox_tester->x, cursor.cursor_hitbox_tester->y)) )
+            && SHROUD_is_revealed(ENT_X(cursor.cursor_hitbox_tester), ENT_Y(cursor.cursor_hitbox_tester)))
           {
             if ( cursor.cursor_mobd_offset != MOBD_CURSOR_HELP_HIGHLIGHT )// INLINED 429C20 CURSOR_anim_set
             {
@@ -40455,8 +39669,7 @@ LABEL_165:
           }
         }
         else if ( !cursor.hovered_unit_task
-               || (cursor.cursor_hitbox_tester->is_collidable = 1,
-                   !SHROUD_is_revealed(cursor.cursor_hitbox_tester->x, cursor.cursor_hitbox_tester->y))
+               || !SHROUD_is_revealed(ENT_X(cursor.cursor_hitbox_tester), ENT_Y(cursor.cursor_hitbox_tester))
                || (v31 = (Unit *)cursor.hovered_unit_task->ctx, v31->player_num != g_player_num)
                || v31->stats->speed
                || (v32 = v31->type, v32 == UnitType_Surv_DetentionCenter)
@@ -40519,10 +39732,9 @@ LABEL_110:
         if ( CURSOR_select(&cursor) )
         {
           *(int *)g_game_event_queue.evt.payload = g_player_num;
-          cursor.cursor_hitbox_tester->is_collidable = 1;
-          *(int *)&g_game_event_queue.evt.payload[4] = cursor.cursor_hitbox_tester->x;
+          *(int *)&g_game_event_queue.evt.payload[4] = ENT_X(cursor.cursor_hitbox_tester);
           v27 = g_game_event_queue.next;
-          *(int *)&g_game_event_queue.evt.payload[8] = cursor.cursor_hitbox_tester->y;
+          *(int *)&g_game_event_queue.evt.payload[8] = ENT_Y(cursor.cursor_hitbox_tester);
           g_game_event_queue.evt.type = GameEvent_AirstrikeCalled;
           v28 = g_game_event_free_head;
           if ( g_game_event_free_head )         // INLINED (???) 429770 CURSOR_event_enqueue
@@ -40622,18 +39834,14 @@ LABEL_110:
         pt = (MobdPoint *)v10->anim_current_frame->points[0].id;
         if ( g_netz_sync_pause )
           goto LABEL_75;
-        v10->is_collidable = 1;
-        cursor.cursor_hitbox_tester->is_collidable = 1;
         x = pt->x;
-        v21 = cursor.cursor_hitbox_tester->x;
-        v10->is_collidable = 1;
-        v10->x = ((x + v21) & 0xFFFFE000) - x + 4096;
-        v10->y = ((pt->y + cursor.cursor_hitbox_tester->y) & 0xFFFFE000) - pt->y + 4096;
-        cursor.cursor_hitbox_tester->is_collidable = 1;
+        v21 = ENT_X(cursor.cursor_hitbox_tester);
+        ENT_X(v10) = ((x + v21) & 0xFFFFE000) - x + 4096;
+        ENT_Y(v10) = ((pt->y + ENT_Y(cursor.cursor_hitbox_tester)) & 0xFFFFE000) - pt->y + 4096;
         v22 = CURSOR_building_planner_ghost(
                 entities,
-                pt->x + cursor.cursor_hitbox_tester->x,
-                pt->y + cursor.cursor_hitbox_tester->y,
+                pt->x + ENT_X(cursor.cursor_hitbox_tester),
+                pt->y + ENT_Y(cursor.cursor_hitbox_tester),
                 cursor.planner->footprint_width,
                 cursor.planner->footprint_height,
                 cursor.planner->type,
@@ -40675,10 +39883,9 @@ LABEL_110:
         {
           SOUND_play(SoundId_BuildingPlace, 0, g_sfx_vol, 16, nullptr);
           *(_WORD *)g_game_event_queue.evt.payload = cursor.planner->type;
-          v25 = v10->x;
-          v10->is_collidable = 1;
+          v25 = ENT_X(v10);
           *(int *)&g_game_event_queue.evt.payload[2] = v25;
-          y = v10->y;
+          y = ENT_Y(v10);
           g_game_event_queue.evt.type = GameEvent_BuildingPlaced;
           *(int *)&g_game_event_queue.evt.payload[6] = y;
           CURSOR_event_enqueue(&g_game_event_queue.evt);
@@ -40971,25 +40178,23 @@ BOOL __fastcall CURSOR_select(CursorState *cursor)
 
   if ( (g_game_mouse_state.new_actions_mask & Mouse_LButton) == 0 )
     return 0;
-  cursor->cursor_hitbox_tester->is_collidable = 1;
   cursor_hitbox_tester = cursor->cursor_hitbox_tester;
   is_box_select = 0;
   frame_count = 0;
-  x = cursor_hitbox_tester->x;
-  y = cursor_hitbox_tester->y;
+  x = ENT_X(cursor_hitbox_tester);
+  y = ENT_Y(cursor_hitbox_tester);
   if ( (g_game_mouse_state.released_actions_mask & Mouse_LButton) == 0 )
   {
     while ( 1 )
     {
       CURSOR_process_game_events(cursor, 0);
-      cursor->cursor_hitbox_tester->is_collidable = 1;
       v6 = cursor->cursor_hitbox_tester;
-      dx = v6->x - x;
+      dx = ENT_X(v6) - x;
       if ( dx < 0 )
-        dx = x - v6->x;
-      dy = v6->y - y;
+        dx = x - ENT_X(v6);
+      dy = ENT_Y(v6) - y;
       if ( dy < 0 )
-        dy = y - v6->y;
+        dy = y - ENT_Y(v6);
       if ( frame_count > 6 && (dy > 4096 || dx > 4096) )
         break;                                  // box-select drag
       ++frame_count;
@@ -41409,8 +40614,7 @@ void __fastcall CURSOR_unit_orders(CursorState *cursor)
     return;
   v11 = 1;
   if ( !cursor->hovered_unit_task
-    || (cursor->cursor_hitbox_tester->is_collidable = 1,
-        !SHROUD_is_revealed(cursor->cursor_hitbox_tester->x, cursor->cursor_hitbox_tester->y)) )
+    || !SHROUD_is_revealed(ENT_X(cursor->cursor_hitbox_tester), ENT_Y(cursor->cursor_hitbox_tester)))
   {
     if ( !cursor->are_own_units_selected || !cursor->are_movable_units_selected )
     {
@@ -41423,8 +40627,7 @@ void __fastcall CURSOR_unit_orders(CursorState *cursor)
           cursor->cursor_mobd_offset = MOBD_CURSOR_DEFAULT_ARROW;
           ENT_anim_set(cursor_hitbox_tester, MOBD_CURSOR_DEFAULT_ARROW);
         }
-        cursor->cursor_hitbox_tester->is_collidable = 1;
-        CURSOR_box_select(cursor, cursor->cursor_hitbox_tester->x, cursor->cursor_hitbox_tester->y);
+        CURSOR_box_select(cursor, ENT_X(cursor->cursor_hitbox_tester), ENT_Y(cursor->cursor_hitbox_tester));
       }
       else if ( cursor_mobd_offset != MOBD_CURSOR_DEFAULT_ARROW )// INLINED
       {
@@ -41434,8 +40637,7 @@ void __fastcall CURSOR_unit_orders(CursorState *cursor)
       }
       return;
     }
-    cursor->cursor_hitbox_tester->is_collidable = 1;// INLINED
-    if ( !SHROUD_is_revealed(cursor->cursor_hitbox_tester->x, cursor->cursor_hitbox_tester->y) )
+    if ( !SHROUD_is_revealed(ENT_X(cursor->cursor_hitbox_tester), ENT_Y(cursor->cursor_hitbox_tester)) )
       goto LABEL_232;
     if ( cursor->is_cursor_over_impassable_terrain )
     {
@@ -41449,8 +40651,7 @@ void __fastcall CURSOR_unit_orders(CursorState *cursor)
       return;
     }
     if ( cursor->selection_executing_archetype == UnitCommandArchetype_MobileDerrick
-      && (cursor->cursor_hitbox_tester->is_collidable = 1,// INLINED
-          OIL_find_patch_at_tile(cursor->cursor_hitbox_tester->x, cursor->cursor_hitbox_tester->y)) )
+      && OIL_find_patch_at_tile(ENT_X(cursor->cursor_hitbox_tester), ENT_Y(cursor->cursor_hitbox_tester)))
     {
       v73 = MOBD_CURSOR_DRILL;
       if ( cursor->cursor_mobd_offset == MOBD_CURSOR_DRILL )// INLINED
@@ -42141,9 +41342,8 @@ void __fastcall CURSOR_move_order(CursorState *cursor)
   int v25; // [esp-Ch] [ebp-1Ch]
   int v26; // [esp-Ch] [ebp-1Ch]
 
-  cursor->cursor_hitbox_tester->is_collidable = 1;// INLINED
-  *(int *)g_game_event_queue.evt.payload = cursor->cursor_hitbox_tester->x;
-  *(int *)&g_game_event_queue.evt.payload[4] = cursor->cursor_hitbox_tester->y;
+  *(int *)g_game_event_queue.evt.payload = ENT_X(cursor->cursor_hitbox_tester);
+  *(int *)&g_game_event_queue.evt.payload[4] = ENT_Y(cursor->cursor_hitbox_tester);
   next = g_game_event_queue.next;
   g_game_event_queue.evt.type = GameEvent_MoveCommand;// INLINED
   v3 = g_game_event_free_head;
@@ -42270,14 +41470,11 @@ LABEL_53:
       v18 = ENT_create(MobdId_Cursors, nullptr, nullptr);
       v18->rn->transform = (RenderTransform)REND_transform_cursor;
       ENT_anim_set(v18, MOBD_CURSOR_MOVE_ACK);
-      v18->is_collidable = 1;
       v19 = 10;
-      cursor->cursor_hitbox_tester->is_collidable = 1;
-      x = cursor->cursor_hitbox_tester->x;
-      v18->is_collidable = 1;
-      v18->x = x;
-      v18->y = cursor->cursor_hitbox_tester->y;
-      v18->z = cursor->cursor_hitbox_tester->z - 1;
+      x = ENT_X(cursor->cursor_hitbox_tester);
+      ENT_X(v18) = x;
+      ENT_Y(v18) = ENT_Y(cursor->cursor_hitbox_tester);
+      ENT_Z(v18) = ENT_Z(cursor->cursor_hitbox_tester) - 1;
       do
       {
         CURSOR_process_game_events(cursor, 1);
@@ -42624,14 +41821,10 @@ LABEL_27:
     {
 LABEL_81:
       v23 = cmd;
-      cursor->cursor_hitbox_tester->is_collidable = 1;
-      cursor->cursor_hitbox_tester->x = g_mapd_camera.x + g_game_mouse_state.cursor_x;
-      cursor->cursor_hitbox_tester->is_collidable = 1;
-      cursor->cursor_hitbox_tester->y = g_mapd_camera.y + g_game_mouse_state.cursor_y;
-      cursor->cursor_entity->is_collidable = 1;
-      cursor->cursor_entity->x = g_game_mouse_state.cursor_x;
-      cursor->cursor_entity->is_collidable = 1;
-      cursor->cursor_entity->y = g_game_mouse_state.cursor_y;
+      ENT_X(cursor->cursor_hitbox_tester) = g_mapd_camera.x + g_game_mouse_state.cursor_x;
+      ENT_Y(cursor->cursor_hitbox_tester) = g_mapd_camera.y + g_game_mouse_state.cursor_y;
+      ENT_X(cursor->cursor_entity) = g_game_mouse_state.cursor_x;
+      ENT_Y(cursor->cursor_entity) = g_game_mouse_state.cursor_y;
       goto LABEL_82;
     }
     v27 = g_mapd_camera.x - g_camera_shake_x;
@@ -42697,14 +41890,10 @@ LABEL_71:
   {
     g_mapd_camera.y = 0;
   }
-  cursor->cursor_hitbox_tester->is_collidable = 1;
-  cursor->cursor_hitbox_tester->x = cursor->rmb_scrolling_initial_x + g_mapd_camera.x;
-  cursor->cursor_hitbox_tester->is_collidable = 1;
-  cursor->cursor_hitbox_tester->y = cursor->rmb_scrolling_initial_y + g_mapd_camera.y;
-  cursor->cursor_entity->is_collidable = 1;
-  cursor->cursor_entity->x = cursor->rmb_scrolling_initial_x;
-  cursor->cursor_entity->is_collidable = 1;
-  cursor->cursor_entity->y = cursor->rmb_scrolling_initial_y;
+  ENT_X(cursor->cursor_hitbox_tester) = cursor->rmb_scrolling_initial_x + g_mapd_camera.x;
+  ENT_Y(cursor->cursor_hitbox_tester) = cursor->rmb_scrolling_initial_y + g_mapd_camera.y;
+  ENT_X(cursor->cursor_entity) = cursor->rmb_scrolling_initial_x;
+  ENT_Y(cursor->cursor_entity) = cursor->rmb_scrolling_initial_y;
   v24 = g_game_mouse_state.cursor_x - (g_rend_screen_width << 7) + cursor->rmb_scrolling_dx;
   v25 = v24;
   cursor->rmb_scrolling_dx = v24;
@@ -42790,10 +41979,9 @@ LABEL_82:
     }
     TSK_yield(cursor->cursor_task, TaskWait_Any, 1);
   }
-  cursor->cursor_hitbox_tester->is_collidable = 1;
   cursor_hitbox_tester = cursor->cursor_hitbox_tester;
-  v37 = cursor_hitbox_tester->x >> 13;
-  v38 = cursor_hitbox_tester->y >> 13;
+  v37 = ENT_X(cursor_hitbox_tester) >> 13;
+  v38 = ENT_Y(cursor_hitbox_tester) >> 13;
   if ( v37 >= 0 )
   {
     if ( v37 >= g_map_num_tiles_x )
@@ -43282,10 +42470,8 @@ LABEL_15:
               ENT_anim_set(*v19, 548);
               can_place = 0;
             }
-            (*v19)->is_collidable = 1;
-            (*v19)->x = v18 << 13;
-            (*v19)->is_collidable = 1;
-            (*v19)->y = v7 << 13;
+            ENT_X(*v19) = v18 << 13;
+            ENT_Y(*v19) = v7 << 13;
           }
           ++v18;
           ++v19;
@@ -43373,58 +42559,39 @@ void __fastcall CURSOR_box_select(CursorState *cursor, int x, int y)
   box_w->rn->transform = (RenderTransform)REND_transform_cursor;
   while ( (g_game_mouse_state.released_actions_mask & Mouse_LButton) == 0 )
   {
-    cursor->cursor_hitbox_tester->is_collidable = 1;
-    v6 = cursor->cursor_hitbox_tester->x;
-    box_x->is_collidable = 1;
+    v6 = ENT_X(cursor->cursor_hitbox_tester);
     if ( v6 < x )
     {
-      cursor->cursor_hitbox_tester->is_collidable = 1;
-      box_x->x = cursor->cursor_hitbox_tester->x;
-      box_z->is_collidable = 1;
-      cursor->cursor_hitbox_tester->is_collidable = 1;
-      box_z->x = cursor->cursor_hitbox_tester->x;
-      box_y->is_collidable = 1;
-      box_y->x = x;
-      box_w->x = x;
-      box_w->is_collidable = 1;
+      ENT_X(box_x) = ENT_X(cursor->cursor_hitbox_tester);
+      ENT_X(box_z) = ENT_X(cursor->cursor_hitbox_tester);
+      ENT_X(box_y) = x;
+      ENT_X(box_w) = x;
       v7 = box_y;
     }
     else
     {
-      box_x->x = x;
-      box_z->x = x;
+      ENT_X(box_x) = x;
+      ENT_X(box_z) = x;
       v7 = box_y;
-      box_z->is_collidable = 1;
-      box_y->is_collidable = 1;
-      cursor->cursor_hitbox_tester->is_collidable = 1;
-      box_y->x = cursor->cursor_hitbox_tester->x;
-      box_w->is_collidable = 1;
-      cursor->cursor_hitbox_tester->is_collidable = 1;
-      box_w->x = cursor->cursor_hitbox_tester->x;
+      ENT_X(box_y) = ENT_X(cursor->cursor_hitbox_tester);
+      ENT_X(box_w) = ENT_X(cursor->cursor_hitbox_tester);
     }
     v8 = y;
-    v9 = cursor->cursor_hitbox_tester->y < y;
-    box_x->is_collidable = 1;
+    v9 = ENT_Y(cursor->cursor_hitbox_tester) < y;
     if ( v9 )
     {
-      box_x->y = cursor->cursor_hitbox_tester->y;
-      v7->is_collidable = 1;
-      v7->y = cursor->cursor_hitbox_tester->y;
-      box_z->is_collidable = 1;
-      box_z->y = y;
-      box_w->is_collidable = 1;
+      ENT_Y(box_x) = ENT_Y(cursor->cursor_hitbox_tester);
+      ENT_Y(v7) = ENT_Y(cursor->cursor_hitbox_tester);
+      ENT_Y(box_z) = y;
     }
     else
     {
-      box_x->y = y;
-      v7->is_collidable = 1;
-      v7->y = y;
-      box_z->is_collidable = 1;
-      box_z->y = cursor->cursor_hitbox_tester->y;
-      box_w->is_collidable = 1;
-      v8 = cursor->cursor_hitbox_tester->y;
+      ENT_Y(box_x) = y;
+      ENT_Y(v7) = y;
+      ENT_Y(box_z) = ENT_Y(cursor->cursor_hitbox_tester);
+      v8 = ENT_Y(cursor->cursor_hitbox_tester);
     }
-    box_w->y = v8;
+    ENT_Y(box_w) = v8;
     CURSOR_process_game_events(cursor, 0);
   }
   next = g_game_event_queue.next;
@@ -43479,10 +42646,8 @@ void __fastcall CURSOR_box_select(CursorState *cursor, int x, int y)
     cursor->selection_tail = (CursorUnitSelection *)cursor;
   }
   CURSOR_process_game_events(cursor, 0);
-  box_w->is_collidable = 1;
-  v14 = box_x->y;
-  box_x->is_collidable = 1;
-  CURSOR_box_query_init(v14, box_x->x, box_w->x, box_w->y);
+  v14 = ENT_Y(box_x);
+  CURSOR_box_query_init(v14, ENT_X(box_x), ENT_X(box_w), ENT_Y(box_w));
   num_units = 0;
   unit = nullptr;
   cursor->are_own_units_selected = 0;
@@ -43594,12 +42759,10 @@ LABEL_57:
       }
     }
   }
-  v25 = box_x->x;
-  box_x->is_collidable = 1;
+  v25 = ENT_X(box_x);
   *(_WORD *)g_game_event_queue.evt.payload = v25 >> 8;
   *(_WORD *)&g_game_event_queue.evt.payload[2] = box_x->y >> 8;
-  v26 = box_w->x >> 8;
-  box_w->is_collidable = 1;
+  v26 = ENT_X(box_w) >> 8;
   *(_WORD *)&g_game_event_queue.evt.payload[4] = v26;
   v27 = box_w->y;
   v28 = g_game_event_queue.next;
@@ -43711,12 +42874,11 @@ void __cdecl UI_sidebar_tooltip(Task *task)
         strcpy(Buffer, name);
       v9 = UI_str_calc_height_wrapped(Buffer, 40);
       v10 = UI_str_calc_width(Buffer, 40);
-      payload->entity->is_collidable = 1;
       v11 = UI_str_create(
               nullptr,
               (FontMobd *)g_mobd[MobdId_Font_Main].layers[0],
-              (payload->entity->x >> 8) - (8 * v10 + 8),
-              (payload->entity->y >> 8) + 22,
+              (ENT_X(payload->entity) >> 8) - (8 * v10 + 8),
+              (ENT_Y(payload->entity) >> 8) + 22,
               v10 + 2,
               v9 + 2,
               0x20000005,
@@ -44341,117 +43503,74 @@ LABEL_22:
 //----- (0042DA90) --------------------------------------------------------
 void __cdecl AI_controller_tick_mute08_smash_the_convoy_impl(Task *task)
 {
-  AiController *ai; // ebx
-  AiAttackerNode *convoy_escort_head; // edi
-  Unit *unit; // eax
-  AiController *v4; // esi
-  Entity *entity; // eax
-  int x; // ebp
-  AiController *j; // eax
-  Unit *convoy_tanker; // ecx
-  int v9; // ecx
-  int v10; // ebx
-  int v11; // edx
-  int v12; // ecx
-  int v13; // edx
-  int v14; // ebx
-  int v15; // ecx
-  AiSquadNode *ctx2; // edx
-  AiSquadNode *squad_pool_free_head; // eax
-  AiSquadNode *v18; // ecx
-  Unit *ctx1; // eax
-  Unit *v20; // edx
-  int y; // [esp+8h] [ebp-18h]
-  int v22; // [esp+Ch] [ebp-14h]
-  AiAttackerNode *prev; // [esp+Ch] [ebp-14h]
-  AiController *v24; // [esp+10h] [ebp-10h]
-  AiAttackerNode **i; // [esp+14h] [ebp-Ch]
-  FollowOrderPayload param; // [esp+18h] [ebp-8h] BYREF
+  AiController *ai = (AiController *)task->ctx;
 
-  ai = (AiController *)task->ctx;
-  v24 = ai;
-  if ( ai->next != ai )
-  {
-    convoy_escort_head = ai->convoy_escort_head;
-    for ( i = &ai->convoy_escort_head;
-          convoy_escort_head != (AiAttackerNode *)i;
-          convoy_escort_head = convoy_escort_head->next )
+  if(ai->next != ai) {
+    for(AiAttackerNode *escort = ai->convoy_escort_head;
+        escort != (AiAttackerNode *)&ai->convoy_escort_head;
+        escort = escort->next)
     {
-      unit = convoy_escort_head->unit;
-      v4 = nullptr;
-      v22 = 0x7FFFFFFF;
-      unit->entity->is_collidable = 1;
-      entity = unit->entity;
-      x = entity->x;
-      y = entity->y;
-      for ( j = ai->next; j != ai; j = j->next )
-      {
-        convoy_tanker = (Unit *)j->ctx1;
-        if ( !convoy_tanker->destroyed )
-        {
-          convoy_tanker->entity->is_collidable = 1;
-          v9 = *((int *)j->ctx1 + 23);
-          v10 = *(int *)(v9 + 16);
-          *(int *)(v9 + 136) = 1;
-          v11 = *((int *)j->ctx1 + 23);
-          if ( v10 - x <= 0 )
-            v12 = x - *(int *)(v11 + 16);
-          else
-            v12 = *(int *)(v11 + 16) - x;
-          v13 = *(int *)(v11 + 20);
-          v14 = v13 - y;
-          if ( v13 - y <= 0 )
-            v14 = y - v13;
-          v15 = v14 + v12;
-          if ( v15 < v22 )
-          {
-            v22 = v15;
-            v4 = j;
-          }
-          ai = v24;
+      Entity *escort_entity = escort->unit->entity;
+      int x = ENT_X(escort_entity);
+      int y = ENT_Y(escort_entity);
+
+      AiController *nearest_slot = nullptr;
+      int nearest_dist = 0x7FFFFFFF;
+      for(AiController *tanker_slot = ai->next; tanker_slot != ai; tanker_slot = tanker_slot->next) {
+        Unit *tanker = (Unit *)tanker_slot->ctx1;
+        if(tanker->destroyed) {
+          continue;
+        }
+        int dx = abs(ENT_X(tanker->entity) - x);
+        int dy = abs(ENT_Y(tanker->entity) - y);
+        int dist = dx + dy;
+        if(dist < nearest_dist) {
+          nearest_dist = dist;
+          nearest_slot = tanker_slot;
         }
       }
-      if ( v4 )
-      {
-        prev = convoy_escort_head->prev;
-        ctx2 = (AiSquadNode *)v4->ctx2;
-        if ( !ctx2 )
-        {
-          squad_pool_free_head = ai->squad_pool_free_head;
-          if ( squad_pool_free_head )
-          {
-            v4->ctx2 = squad_pool_free_head;
+
+      if(nearest_slot) {
+        AiAttackerNode *prev_escort = escort->prev;
+        AiSquadNode *squad = (AiSquadNode *)nearest_slot->ctx2;
+        if(!squad) {
+          AiSquadNode *free_squad = ai->squad_pool_free_head;
+          if(free_squad) {
+            nearest_slot->ctx2 = free_squad;
             ai->squad_pool_free_head = ai->squad_pool_free_head->next;
+          } else {
+            nearest_slot->ctx2 = nullptr;
           }
-          else
-          {
-            v4->ctx2 = nullptr;
-          }
-          v18 = (AiSquadNode *)v4->ctx2;
-          if ( v18 )
-          {
-            v18->next = ai->attack_squad_head;
-            *((int *)v4->ctx2 + 1) = (int)&ai->attack_squad_head;
-            ai->attack_squad_head->prev = (AiSquadNode *)v4->ctx2;
-            ai->attack_squad_head = (AiSquadNode *)v4->ctx2;
-            *((int *)v4->ctx2 + 3) = (int)((char *)v4->ctx2 + 12);
-            *((int *)v4->ctx2 + 4) = (int)((char *)v4->ctx2 + 12);
-            *((int *)v4->ctx2 + 7) = 0;
+          AiSquadNode *new_squad = (AiSquadNode *)nearest_slot->ctx2;
+          if(new_squad) {
+            new_squad->next = ai->attack_squad_head;
+            new_squad->prev = (AiSquadNode *)&ai->attack_squad_head;
+            ai->attack_squad_head->prev = new_squad;
+            ai->attack_squad_head = new_squad;
+            new_squad->attackers_head = (AiAttackerNode *)&new_squad->attackers_head;
+            new_squad->attackers_tail = (AiAttackerNode *)&new_squad->attackers_head;
+            new_squad->flags = 0;
           }
         }
-        convoy_escort_head->squad = ctx2;
-        ctx1 = (Unit *)v4->ctx1;
-        v20 = convoy_escort_head->unit;
+        escort->squad = squad;  // BUG (preserved): uses the pre-allocation snapshot, so this
+                                 // stays null on the squad's first assignment instead of the
+                                 // freshly allocated node used below.
+
+        Unit *tanker = (Unit *)nearest_slot->ctx1;
+        FollowOrderPayload param;
         param.player_num = ai->player_num;
-        param.target = ctx1;
-        TSK_send_message(ctx1->task, TaskMessage_Follow_or_RestartGame, &param, v20->task);
-        convoy_escort_head->next->prev = convoy_escort_head->prev;
-        convoy_escort_head->prev->next = convoy_escort_head->next;
-        convoy_escort_head->next = *((AiAttackerNode **)v4->ctx2 + 3);
-        convoy_escort_head->prev = (AiAttackerNode *)((char *)v4->ctx2 + 12);
-        *(int *)(*((int *)v4->ctx2 + 3) + 4) = (int)convoy_escort_head;
-        *((int *)v4->ctx2 + 3) = (int)convoy_escort_head;
-        convoy_escort_head = prev;
+        param.target = tanker;
+        TSK_send_message(tanker->task, TaskMessage_Follow_or_RestartGame, &param, escort->unit->task);
+
+        escort->next->prev = escort->prev;
+        escort->prev->next = escort->next;
+        AiSquadNode *assigned_squad = (AiSquadNode *)nearest_slot->ctx2;
+        escort->next = assigned_squad->attackers_head;
+        escort->prev = (AiAttackerNode *)&assigned_squad->attackers_head;
+        assigned_squad->attackers_head->prev = escort;
+        assigned_squad->attackers_head = escort;
+
+        escort = prev_escort;
       }
     }
   }
@@ -44683,33 +43802,30 @@ Unit *__fastcall AI_find_nearest_enemy(AiController *ai, Unit *unit, int *distan
 
   v3 = unit;
   res_unit = nullptr;
-  unit->entity->is_collidable = 1;
   entity = unit->entity;
-  x = entity->x;
-  y = entity->y;
+  x = ENT_X(entity);
+  y = ENT_Y(entity);
   res_dist = 0x7FFFFFFF;
   if ( v3->type != UnitType_Mute_Warlord )
   {
     i = ai->enemy_head;
     end = (AiEnemyNode *)&ai->enemy_head;
-    if ( i != (AiEnemyNode *)&ai->enemy_head )
+    if ( i != END(ai->enemy_head))
     {
       while ( 1 )
       {
         v8 = i->unit;
         if ( !v8->destroyed && v8->player_num != v3->player_num )
         {
-          v8->entity->is_collidable = 1;
           v9 = i->unit->entity;
-          v10 = v9->x;
-          v9->is_collidable = 1;
+          v10 = ENT_X(v9);
           v11 = v10 - x <= 0;
           v12 = i->unit->entity;
           if ( v11 )
-            v13 = x - v12->x;
+            v13 = x - ENT_X(v12);
           else
-            v13 = v12->x - x;
-          v14 = v12->y;
+            v13 = ENT_X(v12) - x;
+          v14 = ENT_Y(v12);
           v15 = v14 - y;
           if ( v14 - y <= 0 )
             v15 = y - v14;
@@ -44832,13 +43948,8 @@ BOOL __fastcall NETZ_local_player_init(NetzProtocol protocol, const char *name)
   int v12; // edx
   unsigned int v13; // eax
   int v14; // ecx
-  Coroutine *v15; // et1
   NetzError v16; // ecx
-  Coroutine *v17; // et1
-  Coroutine *v19; // et1
   NetzError v20; // ecx
-  Coroutine *v21; // et1
-  _BYTE v22[12]; // [esp+0h] [ebp-50h] BYREF
   NetzProtocol v23[15]; // [esp+Ch] [ebp-44h] BYREF
   NetzProtocol protocola; // [esp+48h] [ebp-8h]
   const char *name_; // [esp+4Ch] [ebp-4h]
@@ -44906,49 +44017,18 @@ LABEL_20:
   v14 = g_num_multi_players;
   g_netz_players[v12 + 1].synced = 1;
   g_num_multi_players = v14 + 1;
-  g_coroutine_eax = v13;
-  v15 = g_coroutine_current;
-  if ( g_coroutine_list_head != v15 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = v22;
-  v16 = NETZ_set_protocol(protocola);
-  g_coroutine_eax = v16;
-  v17 = g_coroutine_current;
-  if ( g_coroutine_list_head != v17 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_RUN_ON_MAIN_STACK(v16 = NETZ_set_protocol(protocola));
   if ( v16 )
     return 0;
-  v19 = g_coroutine_current;
-  if ( g_coroutine_list_head != v19 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = v22;
-  v20 = NETZ_host_or_join(0);
-  g_coroutine_eax = v20;
-  v21 = g_coroutine_current;
-  if ( g_coroutine_list_head != v21 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_RUN_ON_MAIN_STACK(v20 = NETZ_host_or_join(0));
   return v20 == NetzError_Ok;
 }
 
 //----- (0042E390) --------------------------------------------------------
 void NETZ_disconnect()
 {
-  UINT v0; // eax
-  Coroutine *v1; // et1
-  UINT v2 = 0; // eax
-  Coroutine *v3; // et1
-  void *retaddr; // [esp+0h] [ebp+0h] BYREF
-
-  g_coroutine_eax = v0;                         // BUG main thread guard
-  v1 = g_coroutine_current;
-  if ( g_coroutine_list_head != v1 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &retaddr;
-  NETZ_disconnect_inner();
-  g_coroutine_eax = v2;
-  v3 = g_coroutine_current;
-  if ( g_coroutine_list_head != v3 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_RUN_ON_MAIN_STACK(NETZ_disconnect_inner());
 }
-// 42E390: variable 'v0' is possibly undefined
-// 42E3C6: variable 'v2' is possibly undefined
 
 //----- (0042E400) --------------------------------------------------------
 void __fastcall NETZ_last_send_result(NetzError err)
@@ -44996,8 +44076,6 @@ BOOL __fastcall NETZ_session_exists(int player)
 //----- (0042E450) --------------------------------------------------------
 void __fastcall NETZ_send_roster(NetzPacketType pkt, bool wait_for_ack)
 {
-  UINT v2 = 0; // eax
-  Coroutine *v3; // et1
   int v4; // eax
   NetzRosterPlayer * i; // ebx
   NetzPlayer * player_; // edx
@@ -45012,8 +44090,6 @@ void __fastcall NETZ_send_roster(NetzPacketType pkt, bool wait_for_ack)
   unsigned int v15; // esi
   uint8_t v16; // cl
   int v17; // ecx
-  Coroutine *v18; // et1
-  int v19; // [esp+0h] [ebp-80h] BYREF
   NetzRoster roster; // [esp+Ch] [ebp-74h] BYREF
   unsigned int v21; // [esp+70h] [ebp-10h]
   char *name; // [esp+74h] [ebp-Ch]
@@ -45023,10 +44099,7 @@ void __fastcall NETZ_send_roster(NetzPacketType pkt, bool wait_for_ack)
 
   wait_for_ack_ = wait_for_ack;
   pkt_ = pkt;
-  g_coroutine_eax = v2;
-  v3 = g_coroutine_current;
-  if ( g_coroutine_list_head != v3 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v19;
+  COROUTINE_STACK_BORROW();
   name = (char *)timeGetTime();
   memset(&roster, 0, sizeof(roster));
   v23 = 10000;
@@ -45120,17 +44193,12 @@ void __fastcall NETZ_send_roster(NetzPacketType pkt, bool wait_for_ack)
       while ( g_netz_num_pending_acks > 0 );
     }
   }
-  g_coroutine_eax = v4;
-  v18 = g_coroutine_current;
-  if ( g_coroutine_list_head != v18 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_STACK_RETURN();
 }
 
 //----- (0042E690) --------------------------------------------------------
 void __fastcall NETZ_broadcast_roster_on_game_start(NetzPacketType pkt)
 {
-  UINT v1 = 0; // eax
-  Coroutine *v2; // et1
   NetzRosterPlayer * i; // ebx
   unsigned int event_received_this_tick; // eax
   NetzPlayer * player; // edx
@@ -45140,17 +44208,12 @@ void __fastcall NETZ_broadcast_roster_on_game_start(NetzPacketType pkt)
   unsigned __int32 v9; // edi
   NetzPlayer * player_; // esi
   int slot; // ecx
-  Coroutine *v12; // et1
-  int v13; // [esp+0h] [ebp-78h] BYREF
   NetzRoster roster; // [esp+Ch] [ebp-6Ch] BYREF
   [[maybe_unused]] uint8_t *name; // [esp+70h] [ebp-8h]
   NetzPacketType pkta; // [esp+77h] [ebp-1h]
 
   pkta = pkt;
-  g_coroutine_eax = v1;
-  v2 = g_coroutine_current;
-  if ( g_coroutine_list_head != v2 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v13;
+  COROUTINE_STACK_BORROW();
   i = &roster.players[0];
   memset(&roster, 0, sizeof(roster));
   event_received_this_tick = g_num_multi_players;
@@ -45202,10 +44265,7 @@ void __fastcall NETZ_broadcast_roster_on_game_start(NetzPacketType pkt)
     ++v9;
   }
   while ( (int)player_ < (int)&g_netz_players[PLAYERS_MAX] );
-  g_coroutine_eax = event_received_this_tick;
-  v12 = g_coroutine_current;
-  if ( g_coroutine_list_head != v12 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_STACK_RETURN();
 }
 
 //----- (0042E7B0) --------------------------------------------------------
@@ -45913,8 +44973,6 @@ void NETZ_mission_victory()
 //----- (0042F650) --------------------------------------------------------
 void __fastcall NETZ_join_locally()
 {
-  UINT v0 = 0; // eax
-  Coroutine *v1; // et1
   int v2; // edi
   NetzPlayer * player; // esi
   clock_t v4; // eax
@@ -45930,15 +44988,10 @@ void __fastcall NETZ_join_locally()
   int v14; // eax
   int v15; // ecx
   UINT v16; // eax
-  Coroutine *v17; // et1
-  int v18; // [esp+0h] [ebp-4Ch] BYREF
   int v19[15]; // [esp+Ch] [ebp-40h] BYREF
   char *name; // [esp+48h] [ebp-4h]
 
-  g_coroutine_eax = v0;
-  v1 = g_coroutine_current;
-  if ( g_coroutine_list_head != v1 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v18;
+  COROUTINE_STACK_BORROW();
   g_netz_remote_host_slot = -1;
   g_netz_is_game_started = 0;
   g_netz_game_start_signal = 0;
@@ -46007,10 +45060,7 @@ LABEL_24:
   v16 = g_num_multi_players + 1;
   g_netz_players[v7 + 1].synced = 1;
   g_num_multi_players = v16;
-  g_coroutine_eax = v16;
-  v17 = g_coroutine_current;
-  if ( g_coroutine_list_head != v17 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_STACK_RETURN();
 }
 
 //----- (0042F820) --------------------------------------------------------
@@ -47461,7 +46511,7 @@ LABEL_15:
       switch ( (unsigned int)message )
       {
         case TaskMessage_ReceiveDamage:
-          UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_outpost_on_death);
+          UNIT_apply_damage_ex(unit, payload, UNIT_mode_outpost_on_death);
           UNIT_building_status_bar_update_health(unit);
           break;
         case 0x5E0u:                            // BUG it's just the default: clause
@@ -47502,10 +46552,10 @@ LABEL_15:
         case TaskMessage_TankerAssignedNewDrillrig:
           goto LABEL_15;
         case TaskMessage_Sabotage:
-          UNIT_sabotage(unit, (Unit *)payload, UNIT_mode_outpost_on_death);
+          UNIT_sabotage(unit, payload, UNIT_mode_outpost_on_death);
           break;
         case TaskMessage_Destroy:
-          UNIT_destroy((Unit *)receiver->ctx, UNIT_mode_outpost_on_death);
+          UNIT_on_destroy(receiver->ctx, UNIT_mode_outpost_on_death);
           break;
         case TaskMessage_UnitReady:
           if ( payload == (void *)UnitType_Surv_Bomber )
@@ -47518,11 +46568,10 @@ LABEL_15:
           }
           else
           {
-            unit->entity->is_collidable = 1;
             if ( ENT_create_by_unit_type(
                    (UnitType)payload,
-                   unit->entity->x + unit->mobd_anchors.rally->x,
-                   unit->entity->y + unit->mobd_anchors.rally->y,
+                   ENT_X(unit->entity) + unit->mobd_anchors.rally->x,
+                   ENT_Y(unit->entity) + unit->mobd_anchors.rally->y,
                    unit->player_num) )
             {
               if ( unit->player_num == g_player_num )
@@ -47846,15 +46895,11 @@ UINT __fastcall PAL_commit(PaletteEntry *pal)
   int i;
   int v1;                 // eax
   HPALETTE old_hpalette;  // esi
-  int stack_marker;       // [ebp-410h] BYREF -- coroutine stack sentinel
 
   if ( g_window_bpp != 8 )
     return g_window_bpp;
 
-  // INLINED LLL enter
-  g_coroutine_eax = 8;
-  if ( g_coroutine_list_head != g_coroutine_current && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &stack_marker;
+  COROUTINE_STACK_BORROW();
 
   g_pal_47C018_unused = 0;
   g_pal_468FD4_unused = 1;
@@ -47902,11 +46947,8 @@ UINT __fastcall PAL_commit(PaletteEntry *pal)
     v1 = RealizePalette(g_window_hdc);
   }
 
-  // INLINED LLL leave
-  g_coroutine_eax = v1;
-  if ( g_coroutine_list_head != g_coroutine_current )
-    --g_coroutine_nesting_depth;
-  return g_coroutine_eax;
+  COROUTINE_STACK_RETURN();
+  return v1;
 }
 
 //----- (00431B60) --------------------------------------------------------
@@ -47937,28 +46979,23 @@ HPALETTE __fastcall PAL_gdi_palette_create(const PaletteEntry *pal, int size)
 //----- (00431C40) --------------------------------------------------------
 int PAL_restore_on_win32_activate()
 {
-  int result = 0; // eax
   int i;
   int is_primary_surface_lost; // eax
   HPALETTE old_hpalette; // esi
-  int stack_marker; // [ebp-410h] BYREF -- coroutine stack sentinel
 
   if ( g_window_bpp != 8 )
-    return result;
+    return 0;
 
   // Copy the buffered hardware palette into g_47BC10, clamping each byte to
   // 255 (a no-op for byte data, kept for fidelity with the original).
   for ( i = 0; i < g_pal_bytes_per_color * 256; ++i )
   {
     unsigned int c = ((unsigned __int8 *)g_pal_hw_buf)[i];
-    result = (c << 8) >= 0xFF00u ? 255 : (int)c;
+    int result = (c << 8) >= 0xFF00u ? 255 : (int)c;
     ((unsigned __int8 *)g_47BC10)[i] = result;
   }
 
-  // INLINED LLL enter
-  g_coroutine_eax = result;
-  if ( g_coroutine_list_head != g_coroutine_current && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &stack_marker;
+  COROUTINE_STACK_BORROW();
 
   g_pal_47C018_unused = 0;
   g_pal_468FD4_unused = 1;
@@ -48000,11 +47037,8 @@ int PAL_restore_on_win32_activate()
     is_primary_surface_lost = RealizePalette(g_window_hdc);
   }
 
-  // INLINED LLL leave
-  g_coroutine_eax = is_primary_surface_lost;
-  if ( g_coroutine_list_head != g_coroutine_current )
-    --g_coroutine_nesting_depth;
-  return g_coroutine_eax;
+  COROUTINE_STACK_RETURN();
+  return is_primary_surface_lost;
 }
 
 //----- (00431E60) --------------------------------------------------------
@@ -48122,8 +47156,7 @@ void __cdecl UI_slider(Task *task)
     }
     if ( v16 )
     {
-      g_game_update_loop_task->entity->is_collidable = 1;
-      x = g_game_update_loop_task->entity->x;
+      x = ENT_X(g_game_update_loop_task->entity);
       v3->x = x;
       v11 = entity->x;
       if ( x < v11 || (v11 += 0x8000, x > v11) )
@@ -48179,8 +47212,7 @@ LABEL_35:
   }
   while ( !v17 );
   ENT_remove(v3);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (004321A0) --------------------------------------------------------
@@ -48469,8 +47501,7 @@ LABEL_10:
     TSK_send_message(v1, TaskMessage_UnitSelected_or_UiLeftClick, &task, g_ui_save_load_dialog_task);
   }
   g_ui_slot_controller_items[(int)task] = nullptr;
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(v1);
+  TSK_terminate_with_entity(v1);
 }
 
 //----- (00432800) --------------------------------------------------------
@@ -48482,15 +47513,13 @@ void __cdecl UI_save_slot_row_main_menu(Task *task)
   int v4; // ebx
   TaskMessage *i; // esi
   TaskMessageType type; // eax
-  Entity *entity; // [esp+10h] [ebp-4h]
 
   v1 = task;
   v2 = task->entity;
-  task = (Task *)task->ctx;               // BUG variable reuse
-  entity = v2;
+  int idx = (int)task->ctx;
   v2->rn->transform = (RenderTransform)REND_transform_ui;
   ENT_anim_set(v2, 696);
-  g_ui_slot_controller_items[(int)task] = v1->entity;
+  g_ui_slot_controller_items[idx] = v1->entity;
   while ( 1 )
   {
     v3 = 0;
@@ -48520,11 +47549,10 @@ void __cdecl UI_save_slot_row_main_menu(Task *task)
     while ( !v4 );
     if ( v3 )
       break;
-    TSK_send_message(v1, TaskMessage_UnitSelected_or_UiLeftClick, &task, g_ui_save_load_dialog_task);
+    TSK_send_message(v1, TaskMessage_UnitSelected_or_UiLeftClick, &idx, g_ui_save_load_dialog_task);
   }
-  g_ui_slot_controller_items[(int)task] = nullptr;
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(v1);
+  g_ui_slot_controller_items[idx] = nullptr;
+  TSK_terminate_with_entity(task);
 }
 
 //----- (004328F0) --------------------------------------------------------
@@ -48535,10 +47563,8 @@ void __fastcall UI_save_load_dialog_input_cb(const char *text, int cursor_pos)
   UISTR_append_text(g_work_ui_str, "                 ", nullptr);
   g_work_ui_str->cursor_col = 0;
   UISTR_append_text(g_work_ui_str, text, nullptr);
-  g_ui_input_cursor_entity->is_collidable = 1;
-  g_ui_input_cursor_entity->x = UI_get_letter_x(g_work_ui_str, (unsigned __int16)cursor_pos, 6) << 8;
-  g_ui_input_cursor_entity->is_collidable = 1;
-  g_ui_input_cursor_entity->y = 0xC200;
+  ENT_X(g_ui_input_cursor_entity) = UI_get_letter_x(g_work_ui_str, cursor_pos, 6) << 8;
+  ENT_Y(g_ui_input_cursor_entity) = 0xC200;
 }
 
 //----- (00432990) --------------------------------------------------------
@@ -48758,8 +47784,7 @@ void __fastcall UI_save_load_dialog(Task *task, BOOL is_main_menu_mode, BOOL is_
             UIS_str_free(g_work_ui_str);
             g_work_ui_str = nullptr;
           }
-          ENT_remove(entity);
-          TSK_schedule_self_destruct(task);
+          TSK_terminate_with_entity(task);
         }
         g_save_slot_active = active_row + first_visible_row;
         if ( is_save )
@@ -48793,8 +47818,7 @@ void __fastcall UI_save_load_dialog(Task *task, BOOL is_main_menu_mode, BOOL is_
       if ( !is_double_click )
         break;
 LABEL_60:
-      g_ui_input_cursor_entity->is_collidable = 1;
-      g_ui_input_cursor_entity->y = 0xC200;
+      ENT_Y(g_ui_input_cursor_entity) = 0xC200;
       ENT_anim_set(entity, 1096);
       g_ui_input_locked = 1;
       if ( INPUT_text_edit(
@@ -48919,12 +47943,10 @@ void __cdecl UI_ingame_menu_controller(Task *task)
   g_ui_ingame_controller_task = task;
   task->channel = TaskChannel_IngameMenuController;
   rn = entity->rn;
-  entity->is_collidable = 1;
   v4 = g_rend_screen_width;
-  entity->is_collidable = 1;
   LOBYTE(v4) = v4 & 0xFE;
-  entity->y = 0x4000;
-  entity->x = v4 << 7;
+  ENT_Y(entity) = 0x4000;
+  ENT_X(entity) = v4 << 7;
   entity->z = 1000;
   rn->transform = (RenderTransform)REND_transform_ui;
   task->netz_flags = Task_CanRunDuringSync;
@@ -49219,22 +48241,15 @@ LABEL_65:
 void __fastcall UI_ingame_button_init(Task *task, TaskChannel chan, int x, int y, int z)
 {
   Entity *entity; // esi
-  Entity *parent; // edx
   Entity *v8; // eax
-  int x_; // ebp
   Entity *v10; // eax
 
   entity = task->entity;
   task->channel = chan;
   entity->rn->transform = (RenderTransform)REND_transform_ui;
-  parent = entity->parent;
-  entity->is_collidable = 1;
-  parent->is_collidable = 1;
   v8 = entity->parent;
-  x_ = v8->x;
-  entity->is_collidable = 1;
-  entity->x = x_ + (int)((unsigned)x << 8);
-  entity->y = v8->y + (y << 8);
+  ENT_X(entity) = ENT_X(v8) + (int)((unsigned)x << 8);
+  ENT_Y(entity) = ENT_Y(v8) + (y << 8);
   entity->z = v8->z + (z << 8);
   v10 = ENT_create(MobdId_IngameMenuUi, nullptr, nullptr);
   if ( v10 )
@@ -49262,14 +48277,11 @@ void __fastcall UI_main_menu_button_init(Task *task, TaskChannel chan, int x, in
   task->channel = chan;
   entity->rn->transform = (RenderTransform)REND_transform_ui;
   parent = entity->parent;
-  entity->is_collidable = 1;
-  parent->is_collidable = 1;
   v8 = entity->parent;
-  v9 = v8->x;
-  entity->is_collidable = 1;
-  entity->x = v9 + (x << 8);
-  entity->y = v8->y + (y << 8);
-  entity->z = v8->z + (z << 8);
+  v9 = ENT_X(v8);
+  ENT_X(entity) = v9 + (x << 8);
+  ENT_Y(entity) = ENT_Y(v8) + (y << 8);
+  ENT_Z(entity) = ENT_Z(v8) + (z << 8);
   v10 = ENT_create(MobdId_MainMenu, nullptr, nullptr);
   if ( v10 )
   {
@@ -49285,7 +48297,6 @@ void __fastcall UI_main_menu_button_init(Task *task, TaskChannel chan, int x, in
 void __cdecl UI_ingame_menu_options(Task *task)
 {
   __int16 v1; // ax
-  Entity *entity; // edi
 
   if ( !g_is_single_player || (v1 = 18, g_is_kaos_mode) )
     v1 = 66;
@@ -49295,69 +48306,49 @@ void __cdecl UI_ingame_menu_options(Task *task)
     TSK_send_message(task, TaskMessage_MoveOrder_or_SoundSettings_or_DoSaveGame, nullptr, g_ui_ingame_controller_task);
     TSK_yield(task, TaskWait_Interval, 1);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433810) --------------------------------------------------------
 void __cdecl UI_ingame_menu_load(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuButton, -92, 42, 2);
   if ( UI_button_wait_click(task, 888, 0, 0) )
   {
     TSK_send_message(task, TaskMessage_EscortEnd_or_LoadGame, nullptr, g_ui_ingame_controller_task);
     TSK_yield(task, TaskWait_Interval, 1);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433880) --------------------------------------------------------
 void __cdecl UI_ingame_menu_save(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuButton, -92, 66, 3);
   if ( UI_button_wait_click(task, 900, 0, 0) )
   {
     TSK_send_message(task, TaskMessage_EscortBegin_or_SaveGame, nullptr, g_ui_ingame_controller_task);
     TSK_yield(task, TaskWait_Interval, 1);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (004338F0) --------------------------------------------------------
 void __cdecl UI_ingame_menu_briefing(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuButton, -92, 90, 4);
   if ( UI_button_wait_click(task, 852, 0, 0) )
   {
     TSK_send_message(task, TaskMessage_Infiltrate_or_ShowBriefing, nullptr, g_ui_ingame_controller_task);
     TSK_yield(task, TaskWait_Interval, 1);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433960) --------------------------------------------------------
 void __cdecl UI_ingame_menu_resume(Task *task)
 {
   __int16 v1; // ax
-  Entity *entity; // edi
-
   if ( !g_is_single_player || (v1 = 114, g_is_kaos_mode) )
     v1 = 90;
   UI_ingame_button_init(task, TaskChannel_IngameMenuButton, -92, v1, 5);
@@ -49366,35 +48357,25 @@ void __cdecl UI_ingame_menu_resume(Task *task)
     TSK_send_message(task, TaskMessage_Retreat_or_CancelUi, nullptr, g_ui_ingame_controller_task);
     TSK_yield(task, TaskWait_Interval, 1);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (004339F0) --------------------------------------------------------
 void __cdecl UI_ingame_menu_restart(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuButton, -92, 138, 6);
   if ( UI_button_wait_click(task, 876, 0, 0) )
   {
     TSK_send_message(task, TaskMessage_Follow_or_RestartGame, nullptr, g_ui_ingame_controller_task);
     TSK_yield(task, TaskWait_Interval, 1);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433A60) --------------------------------------------------------
 void __cdecl UI_ingame_menu_quit(Task *task)
 {
   __int16 v1; // ax
-  Entity *entity; // edi
-
   if ( !g_is_single_player || (v1 = 162, g_is_kaos_mode) )
     v1 = 114;
   UI_ingame_button_init(task, TaskChannel_IngameMenuButton, -92, v1, 7);
@@ -49403,17 +48384,12 @@ void __cdecl UI_ingame_menu_quit(Task *task)
     TSK_send_message(task, TaskMessage_AttackOrder_or_QuitGame, nullptr, g_ui_ingame_controller_task);
     TSK_yield(task, TaskWait_Interval, 1);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433AF0) --------------------------------------------------------
 void __cdecl UI_ingame_menu_quit_yes(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuYesNo, -90, 120, 1);
   if ( UI_button_wait_click(task, 780, 1, 0) )
   {
@@ -49433,17 +48409,12 @@ void __cdecl UI_ingame_menu_quit_yes(Task *task)
     MISSION_outcome_task_terminate();
     g_game_loop = GameLoop_PreviousScreen;
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433BA0) --------------------------------------------------------
 void __cdecl UI_ingame_menu_quit_no(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuYesNo, 0, 120, 1);
   if ( UI_button_wait_click(task, 768, 1, 0) )
   {
@@ -49460,31 +48431,21 @@ void __cdecl UI_ingame_menu_quit_no(Task *task)
         nullptr,
         g_ui_ingame_controller_task);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433C30) --------------------------------------------------------
 void __cdecl UI_ingame_menu_restart_yes(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuYesNo, -90, 120, 1);
   if ( UI_button_wait_click(task, 780, 1, 0) )
     g_game_loop = GameLoop_EndMission;
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433C90) --------------------------------------------------------
 void __cdecl UI_ingame_menu_restart_no(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_IngameMenuYesNo, 0, 120, 1);
   if ( UI_button_wait_click(task, 768, 1, 0) )
   {
@@ -49501,17 +48462,12 @@ void __cdecl UI_ingame_menu_restart_no(Task *task)
         nullptr,
         g_ui_ingame_controller_task);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433D20) --------------------------------------------------------
 void __cdecl UI_ingame_menu_briefing_done(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -55, 185, 3);
   if ( UI_button_wait_click(task, 756, 1, 0) )
   {
@@ -49521,17 +48477,12 @@ void __cdecl UI_ingame_menu_briefing_done(Task *task)
     if ( task != g_ui_ingame_controller_task )
       TSK_send_message(task, TaskMessage_BuildingPlacementModeBegin_or_BackToMenu, nullptr, g_ui_ingame_controller_task);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433DB0) --------------------------------------------------------
 void __cdecl UI_ingame_sound_settings_ok_task(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -200, 153, 3);
   TSK_yield(task, TaskWait_Interval, 2);
   g_ui_input_locked = 0;
@@ -49546,32 +48497,23 @@ void __cdecl UI_ingame_sound_settings_ok_task(Task *task)
     if ( task != g_ui_ingame_controller_task )
       TSK_send_message(task, TaskMessage_BuildingPlacementModeBegin_or_BackToMenu, nullptr, g_ui_ingame_controller_task);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433E60) --------------------------------------------------------
 void __cdecl UI_ingame_save_save(Task *task)
 {
-  Entity *entity; // esi
-
   SAVE_read_save_list();
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -80, 153, 3);
   while ( UI_button_wait_click(task, 792, 1, 0) )
     TSK_send_message(task, TaskMessage_MoveOrder_or_SoundSettings_or_DoSaveGame, nullptr, g_ui_save_load_dialog_task);
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433ED0) --------------------------------------------------------
 void __cdecl UI_ingame_save_up(Task *task)
 {
   BOOL v1; // edi
-  Entity *entity; // edi
 
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -180, 153, 3);
   do
@@ -49580,17 +48522,13 @@ void __cdecl UI_ingame_save_up(Task *task)
     TSK_send_message(task, TaskMessage_ShowHint_or_SaveLoadScrollUp, nullptr, g_ui_save_load_dialog_task);
   }
   while ( v1 );
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433F40) --------------------------------------------------------
 void __cdecl UI_ingame_save_down(Task *task)
 {
   BOOL v1; // edi
-  Entity *entity; // edi
 
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -130, 153, 3);
   do
@@ -49603,17 +48541,12 @@ void __cdecl UI_ingame_save_down(Task *task)
       g_ui_save_load_dialog_task);
   }
   while ( v1 );
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00433FB0) --------------------------------------------------------
 void __cdecl UI_ingame_save_cancel(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, 0, 153, 3);
   if ( UI_button_wait_click(task, 816, 1, 0) )
   {
@@ -49622,17 +48555,12 @@ void __cdecl UI_ingame_save_cancel(Task *task)
     if ( task != g_ui_ingame_controller_task )
       TSK_send_message(task, TaskMessage_BuildingPlacementModeBegin_or_BackToMenu, nullptr, g_ui_ingame_controller_task);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00434040) --------------------------------------------------------
 void __cdecl UI_ingame_load_load(Task *task)
 {
-  Entity *entity; // esi
-
   SAVE_read_save_list();
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -80, 153, 3);
   while ( UI_button_wait_click(task, 804, 1, 0) )
@@ -49641,18 +48569,13 @@ void __cdecl UI_ingame_load_load(Task *task)
       TaskMessage_SpawnTanker_or_DoLoadGame_or_LobbyRefreshSettings,
       nullptr,
       g_ui_save_load_dialog_task);
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (004340B0) --------------------------------------------------------
 void __cdecl UI_ingame_load_up(Task *task)
 {
   BOOL v1; // edi
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -180, 153, 3);
   do
   {
@@ -49660,18 +48583,13 @@ void __cdecl UI_ingame_load_up(Task *task)
     TSK_send_message(task, TaskMessage_ShowHint_or_SaveLoadScrollUp, nullptr, g_ui_save_load_dialog_task);
   }
   while ( v1 );
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00434120) --------------------------------------------------------
 void __cdecl UI_ingame_load_down(Task *task)
 {
   BOOL v1; // edi
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, -130, 153, 3);
   do
   {
@@ -49683,17 +48601,12 @@ void __cdecl UI_ingame_load_down(Task *task)
       g_ui_save_load_dialog_task);
   }
   while ( v1 );
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00434190) --------------------------------------------------------
 void __cdecl UI_ingame_load_cancel(Task *task)
 {
-  Entity *entity; // edi
-
   UI_ingame_button_init(task, TaskChannel_UiSlider_or_SaveLoadIngame, 0, 153, 3);
   if ( UI_button_wait_click(task, 816, 1, 0) )
   {
@@ -49702,17 +48615,12 @@ void __cdecl UI_ingame_load_cancel(Task *task)
     if ( task != g_ui_ingame_controller_task )
       TSK_send_message(task, TaskMessage_BuildingPlacementModeBegin_or_BackToMenu, nullptr, g_ui_ingame_controller_task);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00434220) --------------------------------------------------------
 void __cdecl UI_main_menu_load_load(Task *task)
 {
-  Entity *entity; // esi
-
   SAVE_read_save_list();
   UI_main_menu_button_init(task, TaskChannel_SaveLoad_MainMenu, 100, 105, 3);
   UI_widget_register(task->entity, nullptr, 0, 1, 0);
@@ -49722,18 +48630,13 @@ void __cdecl UI_main_menu_load_load(Task *task)
       TaskMessage_SpawnTanker_or_DoLoadGame_or_LobbyRefreshSettings,
       nullptr,
       g_ui_save_load_dialog_task);
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (004342A0) --------------------------------------------------------
 void __cdecl UI_main_menu_load_up(Task *task)
 {
   BOOL v1; // edi
-  Entity *entity; // edi
-
   UI_main_menu_button_init(task, TaskChannel_SaveLoad_Ingame, 10, 105, 3);
   UI_widget_register(task->entity, nullptr, 0, 1, 0);
   do
@@ -49742,18 +48645,13 @@ void __cdecl UI_main_menu_load_up(Task *task)
     TSK_send_message(task, TaskMessage_ShowHint_or_SaveLoadScrollUp, nullptr, g_ui_save_load_dialog_task);
   }
   while ( v1 );
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00434310) --------------------------------------------------------
 void __cdecl UI_main_menu_load_down(Task *task)
 {
   BOOL v1; // edi
-  Entity *entity; // edi
-
   UI_main_menu_button_init(task, TaskChannel_SaveLoad_Ingame, 10, 139, 3);
   UI_widget_register(task->entity, nullptr, 0, 1, 0);
   do
@@ -49766,17 +48664,12 @@ void __cdecl UI_main_menu_load_down(Task *task)
       g_ui_save_load_dialog_task);
   }
   while ( v1 );
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00434390) --------------------------------------------------------
 void __cdecl UI_main_menu_load_cancel(Task *task)
 {
-  Entity *entity; // edi
-
   UI_main_menu_button_init(task, TaskChannel_SaveLoad_MainMenu, 100, 139, 3);
   UI_widget_register(task->entity, nullptr, 1, 1, 0);
   if ( UI_button_wait_click(task, 1752, 1, 1) )
@@ -49789,10 +48682,7 @@ void __cdecl UI_main_menu_load_cancel(Task *task)
     TSK_broadcast_message(task, TaskMessage_RepairBayAssigned, nullptr, TaskChannel_MainMenu);
     TSK_broadcast_message(task, TaskMessage_RepairBayAssigned, nullptr, TaskChannel_MainMenuLoad);
   }
-  entity = task->entity;
-  ENT_remove((Entity *)task->ctx);
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity_and_ctx(task);
 }
 
 //----- (00434460) --------------------------------------------------------
@@ -49825,8 +48715,7 @@ void __cdecl UI_main_menu_load_backdrop(Task *task)
     }
   }
   while ( !end );
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00434500) --------------------------------------------------------
@@ -49971,20 +48860,13 @@ BOOL __stdcall REND_enum_surfaces(IDirectDrawSurface *lpDs, [[maybe_unused]] con
 //----- (00434790) --------------------------------------------------------
 void __fastcall REND_clear_impl(BOOL front)
 {
-  UINT v1 = 0; // eax
-  Coroutine *v3; // et1
   int v4; // eax
   struct IDirectDrawSurfaceVtbl *lpVtbl; // eax
   struct IDirectDrawSurfaceVtbl *v6; // eax
-  Coroutine *v7; // et1
-  int v8; // [esp+0h] [ebp-6Ch] BYREF
   DDBLTFX v9; // [esp+8h] [ebp-64h] BYREF
 
-  g_coroutine_eax = v1;
-  v3 = g_coroutine_current;
-  if ( g_coroutine_list_head != v3 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v8;
-  v4 = g_coroutine_eax;
+  COROUTINE_STACK_BORROW();
+  v4 = 0;
   if ( g_fullscreen )
   {
     v4 = g_pdds->lpVtbl->EnumAttachedSurfaces(g_pdds, nullptr, (LPDDENUMSURFACESCALLBACK)REND_enum_surfaces);
@@ -50005,10 +48887,8 @@ void __fastcall REND_clear_impl(BOOL front)
     v9.dwSize = 100;
     v4 = v6->Blt(g_pdds, &g_46BB50_static, nullptr, nullptr, 0x1000400, &v9);
   }
-  g_coroutine_eax = v4;
-  v7 = g_coroutine_current;
-  if ( g_coroutine_list_head != v7 )
-    --g_coroutine_nesting_depth;
+  (void)v4;
+  COROUTINE_STACK_RETURN();
 }
 
 //----- (00434890) --------------------------------------------------------
@@ -50697,23 +49577,22 @@ void __fastcall REND_blt_colorkey_fast_impl(unsigned __int8 *pixels, int x, int 
 void __fastcall MSG_power_plant(Task *receiver, Task *sender, TaskMessageType message, void *payload)
 {
   Unit *unit; // esi
-  BuildingState *state; // eax
 
-  unit = (Unit *)receiver->ctx;
+  unit = receiver->ctx;
   if ( message == TaskMessage_ReceiveDamage )
   {
-    UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_power_plant_on_death);
+    UNIT_apply_damage_ex(unit, payload, UNIT_mode_power_plant_on_death);
     UNIT_building_status_bar_update_health(unit);
   }
   else if ( message == TaskMessage_Destroy )
   {
-    UNIT_destroy((Unit *)receiver->ctx, UNIT_mode_power_plant_on_death);
+    UNIT_on_destroy(receiver->ctx, UNIT_mode_power_plant_on_death);
   }
   else
   {
     if ( message == TaskMessage_UpgradeComplete )
     {
-      state = (BuildingState *)unit->state;
+      BuildingState *state = unit->state;
       state->upgrade_level = min(8, state->upgrade_level + 1);
       UNIT_status_bar_update_tech(unit);
     }
@@ -50776,25 +49655,23 @@ void __fastcall UNIT_mode_power_plant_spawn_tanker(Unit *unit)
     type = unit->type;
     if ( entity->cplc_spawn_params )
     {
-      entity->is_collidable = 1;
       v4 = unit->entity;
-      y = v4->y;
+      y = ENT_Y(v4);
       player_num = unit->player_num;
       if ( type == UnitType_Surv_PowerStation )
-        ENT_create_by_unit_type(UnitType_Surv_Tanker, v4->x, y + 0x6000, player_num);
+        ENT_create_by_unit_type(UnitType_Surv_Tanker, ENT_X(v4), y + 0x6000, player_num);
       else
-        ENT_create_by_unit_type(UnitType_Mute_Tanker, v4->x, y + 0x6000, player_num);
+        ENT_create_by_unit_type(UnitType_Mute_Tanker, ENT_X(v4), y + 0x6000, player_num);
     }
     else
     {
-      entity->is_collidable = 1;
       v6 = unit->entity;
-      v7 = v6->y;
+      v7 = ENT_Y(v6);
       v9 = unit->player_num;
       if ( type == UnitType_Surv_PowerStation )
-        ENT_create_by_unit_type(UnitType_Surv_Tanker, v6->x - 0x2000, v7 + 0x2000, v9);
+        ENT_create_by_unit_type(UnitType_Surv_Tanker, ENT_X(v6) - 0x2000, v7 + 0x2000, v9);
       else
-        ENT_create_by_unit_type(UnitType_Mute_Tanker, v6->x, v7 + 0x4000, v9);
+        ENT_create_by_unit_type(UnitType_Mute_Tanker, ENT_X(v6), v7 + 0x4000, v9);
     }
   }
   else
@@ -50873,12 +49750,10 @@ void __cdecl PROJ_mode_grenade(Task *task)
   target = (Unit *)task->ctx;
   ctx1 = (UnitProjectileType *)volley->ctx1;
   shooter = (Unit *)volley->parent->ctx1;
-  target->entity->is_collidable = 1;
-  y = volley->y;
-  volley->is_collidable = 1;
+  y = ENT_Y(volley);
   entity = target->entity;
-  v5 = (entity->y - y) >> 8;
-  v6 = (entity->x - volley->x) >> 8;
+  v5 = (ENT_Y(entity) - y) >> 8;
+  v6 = (ENT_X(entity) - ENT_X(volley)) >> 8;
   v28 = MATH_direction_to_orientation(v6, v5);
   v7 = MATH_vec2_length(v6, v5);
   v8 = ctx1;
@@ -51020,23 +49895,20 @@ void __cdecl PROJ_mode_rocket(Task *task)
   v31 = 0;
   proj = (UnitProjectileType *)volley->ctx1;
   parent = (Unit *)volley->parent->ctx1;
-  is_airborne = target->entity->z >= 0x1400;
+  is_airborne = ENT_Z(target->entity) >= 0x1400;
   v34 = parent;
   volley->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[parent->player_num]];
   volley->rn->flags |= RenderNode_PaletteOverride;// BUG macro
-  target->entity->is_collidable = 1;
-  x = volley->x;
-  y = volley->y;
-  volley->is_collidable = 1;
+  x = ENT_X(volley);
+  y = ENT_Y(volley);
   entity = target->entity;
-  v7 = (entity->x - x) >> 8;
-  v8 = (entity->y - y) >> 8;
+  v7 = (ENT_X(entity) - x) >> 8;
+  v8 = (ENT_Y(entity) - y) >> 8;
   if ( parent->turret )
   {
-    z = volley->z;
-    volley->is_collidable = 1;
-    volley->z = z + 0x1400;
-    volley->y = y + 0xA00;
+    z = ENT_Z(volley);
+    ENT_Z(volley) = z + 0x1400;
+    ENT_Y(volley) = y + 0xA00;
   }
   v35 = MATH_direction_to_orientation(v7, v8);
   v10 = 2 * (MATH_vec2_length(v7, v8) / proj->speed) + 1;
@@ -51149,12 +50021,10 @@ void __cdecl PROJ_flamethrower_hit(Task *task)
   entity = task->entity;
   unit = (Unit *)task->ctx;
   proj = (UnitProjectileType *)entity->ctx1;
-  unit->entity->is_collidable = 1;
-  x = entity->x;
-  entity->is_collidable = 1;
+  x = ENT_X(entity);
   v5 = unit->entity;
-  v6 = (v5->y - entity->y) >> 8;
-  v7 = (v5->x - x) >> 8;
+  v6 = (ENT_Y(v5) - ENT_Y(entity)) >> 8;
+  v7 = (ENT_X(v5) - x) >> 8;
   v9 = MATH_direction_to_orientation(v7, v6);
   SOUND_play_positional(entity, SoundId_Flamethrower, g_sfx_vol, 0);
   ENT_anim_set(entity, 496);
@@ -51214,12 +50084,12 @@ void __cdecl PROJ_mode_flamethrower(Task *task)
     v7->ctx1 = proj;
     v7->projectile_ctx.attacker = shooter;
     v7->projectile_ctx.attacker_unit_id = shooter->unit_id;
-    v7->infantry_damage = LOWORD(proj->damage_to_infantry)
+    v7->infantry_damage = proj->damage_to_infantry
                         + ((proj->damage_to_infantry * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
-    v7->vehicle_damage = LOWORD(proj->damage_to_vehicles)
+    v7->vehicle_damage = proj->damage_to_vehicles
                        + ((proj->damage_to_vehicles * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
     ++v4;
-    v7->building_damage = LOWORD(proj->damage_to_buildings)
+    v7->building_damage = proj->damage_to_buildings
                         + ((proj->damage_to_buildings * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
     TSK_yield(task, TaskWait_Interval, 5);
     if ( v4 >= 8 )
@@ -51249,10 +50119,8 @@ void __cdecl PROJ_giant_beetle_hit(Task *task)
   entity = task->entity;
   proj = (UnitProjectileType *)entity->ctx1;
   v11 = proj;
-  unit->entity->is_collidable = 1;
-  y = entity->y;
-  entity->is_collidable = 1;
-  v6 = MATH_vec2_length((unit->entity->x - entity->x) >> 8, (unit->entity->y - y) >> 8);
+  y = ENT_Y(entity);
+  v6 = MATH_vec2_length((ENT_X(unit->entity) - ENT_X(entity)) >> 8, (ENT_Y(unit->entity) - y) >> 8);
   taska = unit->unit_id;
   v7 = v6 / proj->speed;
   ENT_anim_set(entity, 1784);
@@ -51326,12 +50194,10 @@ void __cdecl PROJ_mode_giant_beetle(Task *task)
   target = (Unit *)task->ctx;
   proj = (UnitProjectileType *)volley->ctx1;
   shooter = (Unit *)volley->parent->ctx1;
-  target->entity->is_collidable = 1;
-  v4 = volley->x;
-  volley->is_collidable = 1;
+  v4 = ENT_X(volley);
   entity = target->entity;
-  x = (entity->x - v4) >> 8;
-  y = (entity->y - volley->y) >> 8;
+  x = (ENT_X(entity) - v4) >> 8;
+  y = (ENT_Y(entity) - ENT_Y(volley)) >> 8;
   v20 = MATH_direction_to_orientation(x, y);
   v22 = 0;
   SOUND_play_positional(shooter->entity, SoundId_AcidSpit, g_sfx_vol, 0);
@@ -51415,11 +50281,11 @@ void __cdecl PROJ_mode_giant_beetle(Task *task)
         v12->ctx1 = proj;
         v12->projectile_ctx.attacker = shooter;
         v12->projectile_ctx.attacker_unit_id = shooter->unit_id;
-        v12->infantry_damage = LOWORD(proj->damage_to_infantry)
+        v12->infantry_damage = proj->damage_to_infantry
                              + ((proj->damage_to_infantry * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
-        v12->vehicle_damage = LOWORD(proj->damage_to_vehicles)
+        v12->vehicle_damage = proj->damage_to_vehicles
                             + ((proj->damage_to_vehicles * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
-        v12->building_damage = LOWORD(proj->damage_to_buildings)
+        v12->building_damage = proj->damage_to_buildings
                              + ((proj->damage_to_buildings * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
         v12->x_speed = v21->x_speed + 4 * (GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 470) & 31) - 64;
         v12->y_speed = v21->y_speed + 4 * (GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 471) & 31) - 64;
@@ -51454,14 +50320,12 @@ void __cdecl PROJ_4368B0(Task *task)
   volley = task->entity;
   target = (Unit *)task->ctx;
   proj = (UnitProjectileType *)volley->ctx1;
-  target->entity->is_collidable = 1;
-  y = volley->y;
-  x = volley->x;
-  volley->is_collidable = 1;
+  y = ENT_Y(volley);
+  x = ENT_X(volley);
   entity = target->entity;
   unit_id = target->unit_id;
-  v6 = (entity->x - x) >> 8;
-  v7 = (entity->y - y) >> 8;
+  v6 = (ENT_X(entity) - x) >> 8;
+  v7 = (ENT_Y(entity) - y) >> 8;
   ENT_anim_set(volley, 1152);
   volley->collider = &g_null_collision;
   v8 = MATH_vec2_length(v6, v7);
@@ -51556,13 +50420,11 @@ void __cdecl PROJ_mode_mech(Task *task)
   v47 = 0;
   if ( shooter->turret->volley_remaining % 3 )
   {
-    entity->is_collidable = 1;
-    v5 = volley->y;
-    x = volley->x;
-    volley->is_collidable = 1;
+    v5 = ENT_Y(volley);
+    x = ENT_X(volley);
     v7 = target->entity;
-    v8 = (v7->x - x) >> 8;
-    ya = (v7->y - v5) >> 8;
+    v8 = (ENT_X(v7) - x) >> 8;
+    ya = (ENT_Y(v7) - v5) >> 8;
     v50 = MATH_direction_to_orientation(v8, ya);
     volley->mobd_id = MobdId_Mech;
     ENT_anim_set(volley, 1152);
@@ -51612,15 +50474,13 @@ void __cdecl PROJ_mode_mech(Task *task)
   {
     volley->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[shooter->player_num]];
     volley->rn->flags |= RenderNode_PaletteOverride;
-    target->entity->is_collidable = 1;
-    v19 = volley->x;
-    volley->is_collidable = 1;
+    v19 = ENT_X(volley);
     v20 = target->entity;
     turret = shooter->turret;
-    v22 = (v20->x - v19) >> 8;
-    v23 = (v20->y - volley->y) >> 8;
+    v22 = (ENT_X(v20) - v19) >> 8;
+    v23 = (ENT_Y(v20) - ENT_Y(volley)) >> 8;
     if ( turret )
-      volley->z = turret->entity->z + 0x500;
+      ENT_Z(volley) = turret->entity->z + 0x500;
     v51 = MATH_direction_to_orientation(v22, v23);
     v24 = 2 * (MATH_vec2_length(v22, v23) / proj->speed) + 1;
     v57 = v24;
@@ -51753,31 +50613,26 @@ void __cdecl PROJ_machinegun_hit(Task *task)
     if ( (task->transient_events & TaskEvent_AnimCompleted) != 0 )
       break;
     turret = shooter->turret;
-    volley->is_collidable = 1;
     if ( turret )
     {
-      shooter->turret->entity->is_collidable = 1;
       v4 = shooter->turret;
       entity = v4->entity;
       x = v4->projectile_spawn_anchor->x;
-      v7 = entity->x;
-      volley->is_collidable = 1;
-      volley->x = v7 + x;
+      v7 = ENT_X(entity);
+      ENT_X(volley) = v7 + x;
       v8 = shooter->turret;
       projectile_spawn_anchor = v8->projectile_spawn_anchor;
       v10 = v8->entity;
     }
     else
     {
-      shooter->entity->is_collidable = 1;
       v11 = shooter->mobd_anchors.turret->x;
-      v12 = shooter->entity->x;
-      volley->is_collidable = 1;
-      volley->x = v12 + v11;
+      v12 = ENT_X(shooter->entity);
+      ENT_X(volley) = v12 + v11;
       projectile_spawn_anchor = shooter->mobd_anchors.turret;
       v10 = shooter->entity;
     }
-    volley->y = projectile_spawn_anchor->y + v10->y + 0xA00;
+    ENT_Y(volley) = projectile_spawn_anchor->y + v10->y + 0xA00;
     TSK_yield(task, TaskWait_Interval, 1);
   }
   ENT_remove(volley);
@@ -51818,13 +50673,10 @@ void __cdecl PROJ_mode_gort(Task *task)
   v5 = v4->task;
   v4->parent = volley->parent;
   v5->ctx = target;
-  v4->z = shooter->entity->z + 0x1400;
-  v4->is_collidable = 1;
-  target->entity->is_collidable = 1;
-  x = target->entity->x;
-  v4->is_collidable = 1;
-  v4->x = x;
-  v4->y = target->entity->y + 0xA00;
+  ENT_Z(v4) = shooter->entity->z + 0x1400;
+  x = ENT_X(target->entity);
+  ENT_X(v4) = x;
+  ENT_Y(v4) = ENT_Y(target->entity) + 0xA00;
   ENT_anim_set(v4, 2112);
   SOUND_play_positional(shooter->entity, SoundId_GortProjectile, g_sfx_vol, 0);
   volley->z = shooter->entity->z + 0x1400;
@@ -51832,12 +50684,9 @@ void __cdecl PROJ_mode_gort(Task *task)
   {
     if ( (task->transient_events & TaskEvent_AnimCompleted) != 0 )
       break;
-    volley->is_collidable = 1;
-    shooter->entity->is_collidable = 1;
-    v7 = shooter->mobd_anchors.turret->x + shooter->entity->x;
-    volley->is_collidable = 1;
-    volley->x = v7;
-    volley->y = shooter->entity->y + shooter->mobd_anchors.turret->y + 0xA00;
+    v7 = shooter->mobd_anchors.turret->x + ENT_X(shooter->entity);
+    ENT_X(volley) = v7;
+    ENT_Y(volley) = ENT_Y(shooter->entity) + shooter->mobd_anchors.turret->y + 0xA00;
     if ( !shooter->destroyed )
       TSK_send_message(task, TaskMessage_ReceiveDamage, volley, target->task);
     TSK_yield(task, TaskWait_Interval, 1);
@@ -51914,9 +50763,8 @@ void __cdecl PROJ_mode_machinegun(Task *task)
         v4->parent = volley->parent;
         v5->ctx = target;
         z = shooter->turret->entity->z;
-        v4->is_collidable = 1;
-        v4->z = z + 0x1400;
-        v4->y = shooter->turret->projectile_spawn_anchor->y + shooter->turret->entity->y + 0xA00;
+        ENT_Z(v4) = z + 0x1400;
+        ENT_Y(v4) = shooter->turret->projectile_spawn_anchor->y + shooter->turret->entity->y + 0xA00;
         ENT_anim_set_frame(v4, 2184, g_angle_to_orientation[shooter->turret->current_mobd_frame]);
       }
     }
@@ -51933,9 +50781,8 @@ void __cdecl PROJ_mode_machinegun(Task *task)
       v7->parent = volley->parent;
       v8->ctx = target;
       v9 = shooter->entity->z;
-      v7->is_collidable = 1;
-      v7->z = v9 + 0x1400;
-      v7->y = shooter->entity->y + shooter->mobd_anchors.turret->y + 0xA00;
+      ENT_Z(v7) = v9 + 0x1400;
+      ENT_Y(v7) = shooter->entity->y + shooter->mobd_anchors.turret->y + 0xA00;
       v10 = 2248;
       if ( !shooter->stats->is_infantry )
         v10 = 2184;
@@ -51944,12 +50791,9 @@ void __cdecl PROJ_mode_machinegun(Task *task)
   }
   if ( v16 )
     volley->rn->transform = (RenderTransform)REND_transform_airborne;
-  volley->is_collidable = 1;
-  target->entity->is_collidable = 1;
-  volley->x = target->entity->x + (((GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 805) & 31) - 16) * 256);  // was <<8: operand is signed (-16..15), shift of negative is UB
-  volley->is_collidable = 1;
-  volley->y = target->entity->y + (((GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 806) & 31) - 16) * 256);  // was <<8: signed operand, UB on negative
-  volley->z = target->entity->z + 0x100;
+  ENT_X(volley) = ENT_X(target->entity) + (((GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 805) & 31) - 16) * 256);  // was <<8: operand is signed (-16..15), shift of negative is UB
+  ENT_Y(volley) = ENT_Y(target->entity) + (((GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 806) & 31) - 16) * 256);  // was <<8: signed operand, UB on negative
+  ENT_Z(volley) = ENT_Z(target->entity) + 0x100;
   TSK_yield(task, TaskWait_Interval, 10);
   volley->x_speed = 0;
   volley->y_speed = 0;
@@ -52007,10 +50851,8 @@ void __cdecl PROJ_mode_437690(Task *task)
   target = (Unit *)task->ctx;
   proj = (UnitProjectileType *)volley->ctx1;
   shooter = (Unit *)volley->parent->ctx1;
-  target->entity->is_collidable = 1;
-  y = volley->y;
-  volley->is_collidable = 1;
-  v16 = MATH_direction_to_orientation((target->entity->x - volley->x) >> 8, (target->entity->y - y) >> 8);
+  y = ENT_Y(volley);
+  v16 = MATH_direction_to_orientation((ENT_X(target->entity) - ENT_X(volley)) >> 8, (ENT_Y(target->entity) - y) >> 8);
   v5 = shooter->stats->accuracy + g_veterancy_accuracy_bonus[shooter->veterancy];
   v6 = v5;
   if ( v5 >= 100 )
@@ -52072,12 +50914,10 @@ void __cdecl PROJ_mode_bow(Task *task)
   target = (Unit *)task->ctx;
   proj = (UnitProjectileType *)volley->ctx1;
   shooter = (Unit *)volley->parent->ctx1;
-  target->entity->is_collidable = 1;
-  x = volley->x;
-  volley->is_collidable = 1;
+  x = ENT_X(volley);
   entity = target->entity;
-  v5 = (entity->y - volley->y) >> 8;
-  v6 = (entity->x - x) >> 8;
+  v5 = (ENT_Y(entity) - ENT_Y(volley)) >> 8;
+  v6 = (ENT_X(entity) - x) >> 8;
   v21 = MATH_direction_to_orientation(v6, v5);
   SOUND_play_positional(shooter->entity, SoundId_Mute_Bow, g_sfx_vol, 0);
   volley->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[shooter->player_num]];
@@ -52162,12 +51002,10 @@ void __cdecl PROJ_mode_generic(Task *task)
   proj = (UnitProjectileType *)volley->ctx1;
   shooter = (Unit *)volley->parent->ctx1;
   v26 = shooter;
-  target->entity->is_collidable = 1;
-  x = volley->x;
-  volley->is_collidable = 1;
+  x = ENT_X(volley);
   entity = target->entity;
-  v6 = (entity->y - volley->y) >> 8;
-  v7 = (entity->x - x) >> 8;
+  v6 = (ENT_Y(entity) - ENT_Y(volley)) >> 8;
+  v7 = (ENT_X(entity) - x) >> 8;
   v8 = MATH_direction_to_orientation(v7, v6);
   volley->collider = &g_null_collision;
   v27 = v8;
@@ -52526,13 +51364,11 @@ void __cdecl UPG_tick(Task *task)
 
 //----- (00438200) --------------------------------------------------------
 void __fastcall MSG_research_lab(
-        Task *receiver,
-        Task *sender,
-        TaskMessageType message,
-        Unit *payload)                    // BUG it's actually void*
+  Task *receiver,
+  Task *sender,
+  TaskMessageType message,
+  void *payload)
 {
-  Unit *unit; // edi
-  BuildingState *state; // ebx
   int upgrade_remaining_cost; // eax
   int *p_upgrade_timer; // ebx
   Entity *v9; // eax
@@ -52544,25 +51380,25 @@ void __fastcall MSG_research_lab(
   Task *task; // ecx
   BuildingState *v16; // [esp+10h] [ebp-4h]
 
-  unit = (Unit *)receiver->ctx;
-  state = (BuildingState *)unit->state;
+  Unit *unit = receiver->ctx;
+  BuildingState *state = unit->state;
   v16 = state;
   if ( !unit->destroyed )
   {
     switch ( message )
     {
       case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_research_lab_on_death);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_research_lab_on_death);
         UNIT_building_status_bar_update_health(unit);
         break;
       case TaskMessage_Sabotage:
         UNIT_sabotage(unit, payload, UNIT_mode_research_lab_on_death);
         break;
       case TaskMessage_Destroy:
-        UNIT_destroy(unit, UNIT_mode_research_lab_on_death);
+        UNIT_on_destroy(unit, UNIT_mode_research_lab_on_death);
         break;
       case TaskMessage_UnitReady:
-        TSK_send_message(receiver, TaskMessage_UpgradeComplete, (void *)payload->unit_id, g_game_update_loop_task);
+        TSK_send_message(receiver, TaskMessage_UpgradeComplete, (void *)((Unit *)payload)->unit_id, g_game_update_loop_task);
         if ( unit->player_num == g_player_num )
         {
           UI_show_notification_box(nullptr, "Upgrade complete");
@@ -52588,24 +51424,23 @@ void __fastcall MSG_research_lab(
         p_upgrade_timer = &state->upgrade_remaining_cost;
         if ( !upgrade_remaining_cost )
         {
+          Unit *payload_u = payload;
           *p_upgrade_timer = 300;
-          v9 = ENT_create_ex(MobdId_Cursors, payload->entity, UPG_tick, TaskKind_Callback, nullptr);
-          v9->is_collidable = 1;
-          x = payload->mobd_anchors.render->x;
-          v9->is_collidable = 1;
-          v9->x += x;
-          y = payload->mobd_anchors.render->y;
-          v12 = v9->y;
+          v9 = ENT_create_ex(MobdId_Cursors, payload_u->entity, UPG_tick, TaskKind_Callback, nullptr);
+          x = payload_u->mobd_anchors.render->x;
+          ENT_X(v9) += x;
+          y = payload_u->mobd_anchors.render->y;
+          v12 = ENT_Y(v9);
           v9->ctx1 = p_upgrade_timer;
           v13 = y + 0x100A00 + v12;
-          z = v9->z;
+          z = ENT_Z(v9);
           v9->y = v13;
           task = v9->task;
-          v9->parent = (Entity *)payload; // BUG this is disturbing - but it's seems like a one-off hack specifically for upgrades
+          v9->parent = (Entity *)payload_u; // BUG this is a Unit* - disturbing - but it's seems like a one-off hack specifically for upgrades
           v9->z = z + 0x200000;
           task->ctx = nullptr;
           v16->ctx = v9->task;
-          unit->entity->parent = (Entity *)payload->unit_id;
+          unit->entity->parent = (Entity *)payload_u->unit_id;
           PROD_enqueue_one(&g_cash.cash[unit->player_num], p_upgrade_timer, 42, receiver, payload, -1);
           if ( unit->player_num == g_player_num )
           {
@@ -52668,7 +51503,7 @@ void __fastcall UNIT_mode_research_lab_on_complete(Unit *unit)
     else
       SOUND_play(SoundId_Surv_BuildingReady, 0, g_sfx_vol, 16, nullptr);
   }
-  unit->task->message_handler = (MessageHandler)MSG_research_lab;
+  unit->task->message_handler = MSG_research_lab;
   unit->task->channel = TaskChannel_ResearchLab;
   if ( unit->entity->cplc_spawn_params )
     unit->mode = UNIT_mode_building_snap_to_grid;
@@ -52982,8 +51817,7 @@ void __cdecl SCHRAP_gore(Task *task)
     TSK_yield(task, TaskWait_Interval, 1);
   if ( g_num_gore_and_debris > 0 )
     --g_num_gore_and_debris;
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00438C20) --------------------------------------------------------
@@ -53028,8 +51862,7 @@ void __cdecl SCHRAP_debris(Task *task)
   TSK_yield(task, TaskWait_AnimCompletion, 0);
   if ( g_num_gore_and_debris > 0 )
     --g_num_gore_and_debris;
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00438D90) --------------------------------------------------------
@@ -53125,8 +51958,7 @@ void __cdecl SCHRAP_nuke_flak(Task *task)
   TSK_yield(task, TaskWait_AnimCompletion, 0);
   if ( g_num_gore_and_debris > 0 )              // INLINED _release()
     --g_num_gore_and_debris;
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00439050) --------------------------------------------------------
@@ -53144,8 +51976,7 @@ void __cdecl SCHRAP_bomber_fire_trail(Task *task)
   TSK_yield(task, TaskWait_AnimCompletion, 0);
   if ( g_num_explosions > 0 )
     --g_num_explosions;
-  ENT_remove(task->entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (004390F0) --------------------------------------------------------
@@ -53507,30 +52338,17 @@ BOOL __fastcall SOUND_bank_load(const char *filename)
 //----- (004396C0) --------------------------------------------------------
 int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task *task)
 {
-  UINT v5; // eax
-  Coroutine *v6; // et1
-  SoundStream *v7; // eax
-  Coroutine *v8; // et1
   LevelHunk *bank; // esi
   SoundStream *v11; // ebx
-  Coroutine *v12; // et1
   IDirectSoundBuffer **p_dsb; // edi
   IDirectSoundBuffer *v14; // eax
   bool v15; // zf
   unsigned int v16; // ecx
   UINT v17; // eax
-  Coroutine *v18; // et1
   SoundStream *next; // eax
   SoundStream *prev; // eax
-  SoundStream *v21; // eax
-  Coroutine *v22; // et1
-  Coroutine *v23; // et1
-  Coroutine *v24; // et1
   SoundStream *v25; // eax
   SoundStream *v26; // eax
-  SoundStream *v27; // eax
-  Coroutine *v28; // et1
-  int v29; // [esp+0h] [ebp-3Ch] BYREF
   DSBUFFERDESC1 v30; // [esp+Ch] [ebp-30h] BYREF
   BOOL v31; // [esp+20h] [ebp-1Ch]
   IDirectSoundBuffer *v32; // [esp+24h] [ebp-18h]
@@ -53541,11 +52359,7 @@ int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task
   void *out_pcm_data; // [esp+38h] [ebp-4h] BYREF
 
   v31 = loop;
-  g_coroutine_eax = v5;
-  v6 = g_coroutine_current;
-  if ( g_coroutine_list_head != v6 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v29;
-  v7 = nullptr;
+  COROUTINE_STACK_BORROW();
   memset(&v30, 0, sizeof(v30));
   out_pcm_data = nullptr;
   if ( volume )
@@ -53555,10 +52369,7 @@ int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task
       bank = *((LevelHunk **)g_sound_bank + sound_id);
       if ( bank == g_sound_lvl || !bank )
       {
-        g_coroutine_eax = 0;
-        v23 = g_coroutine_current;
-        if ( g_coroutine_list_head != v23 )
-          --g_coroutine_nesting_depth;
+        COROUTINE_STACK_RETURN();
         return 0;
       }
       else
@@ -53571,7 +52382,6 @@ int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task
           if ( !++g_sound_next_id )
             g_sound_next_id = 1;
           v11->id = g_sound_next_id;
-          v7 = g_sounds_head;
           v11->next = g_sounds_head;
           v11->prev = &g_47C398_sentinel;
           g_sounds_head->prev = v11;
@@ -53595,13 +52405,11 @@ int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task
             prev = v11->prev;
             if ( prev )
               prev->next = v11->next;
-            v21 = g_sounds_free_head;
+            if ( g_sounds_head == v11 )              // node was head: advance, else head dangles at recycled node
+              g_sounds_head = next;
             v11->next = g_sounds_free_head;
             g_sounds_free_head = v11;
-            g_coroutine_eax = (UINT)v21;
-            v22 = g_coroutine_current;
-            if ( g_coroutine_list_head != v22 )
-              --g_coroutine_nesting_depth;
+            COROUTINE_STACK_RETURN();
             return 0;
           }
           else
@@ -53623,13 +52431,11 @@ int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task
               v26 = v11->prev;
               if ( v26 )
                 v26->next = v11->next;
-              v27 = g_sounds_free_head;
+              if ( g_sounds_head == v11 )            // node was head: advance, else head dangles at recycled node
+                g_sounds_head = v25;
               v11->next = g_sounds_free_head;
               g_sounds_free_head = v11;
-              g_coroutine_eax = (UINT)v27;
-              v28 = g_coroutine_current;
-              if ( g_coroutine_list_head != v28 )
-                --g_coroutine_nesting_depth;
+              COROUTINE_STACK_RETURN();
               return 0;
             }
             else
@@ -53649,39 +52455,28 @@ int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task
                 ++v11->num_play_attempts_while_paused;
               else
                 v17 = v11->dsb->lpVtbl->Play(v11->dsb, 0, 0, v31);// BUG but BOOL happens to coincide with DSBPLAY_LOOPING=1
-              g_coroutine_eax = v17;
-              v18 = g_coroutine_current;
-              if ( g_coroutine_list_head != v18 )
-                --g_coroutine_nesting_depth;
+              (void)v17;
+              COROUTINE_STACK_RETURN();
               return v11->id;
             }
           }
         }
         else
         {
-          g_coroutine_eax = (UINT)v7;
-          v12 = g_coroutine_current;
-          if ( g_coroutine_list_head != v12 )
-            --g_coroutine_nesting_depth;
+          COROUTINE_STACK_RETURN();
           return 0;
         }
       }
     }
     else
     {
-      g_coroutine_eax = 0;
-      v24 = g_coroutine_current;
-      if ( g_coroutine_list_head != v24 )
-        --g_coroutine_nesting_depth;
+      COROUTINE_STACK_RETURN();
       return 0;
     }
   }
   else
   {
-    g_coroutine_eax = 0;
-    v8 = g_coroutine_current;
-    if ( g_coroutine_list_head != v8 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_STACK_RETURN();
     return 0;
   }
 }
@@ -53690,16 +52485,12 @@ int __fastcall SOUND_play(SoundId sound_id, BOOL loop, int volume, int pan, Task
 int __fastcall SOUND_play_async(const char *filename, BOOL looping, int volume, int pan, Task *task)
 {
   SoundStream *v6; // ebx
-  SoundStream *v7; // eax
-  Coroutine *v8; // et1
   int v9; // esi
   int v10; // eax
   const char *v11; // edi
   uintptr_t v12; // eax
   int id; // ecx
   UINT flags; // eax
-  Coroutine *v15; // et1
-  int v16; // [esp+0h] [ebp-10h] BYREF
   const char *v17; // [esp+Ch] [ebp-4h]
 
   v17 = filename;
@@ -53713,17 +52504,13 @@ int __fastcall SOUND_play_async(const char *filename, BOOL looping, int volume, 
   if ( !++g_sound_next_id )
     g_sound_next_id = 1;
   v6->id = g_sound_next_id;
-  v7 = g_sounds_head;
   v6->next = g_sounds_head;
   v6->prev = &g_47C398_sentinel;
   g_sounds_head->prev = v6;
   g_sounds_head = v6;
   if ( !v6 )
     return 0;
-  g_coroutine_eax = (UINT)v7;
-  v8 = g_coroutine_current;
-  if ( g_coroutine_list_head != v8 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v16;
+  COROUTINE_STACK_BORROW();
   v9 = v6->flags | 8;
   v6->task = task;
   v6->playback_mode = SoundPlayback_Streaming;
@@ -53745,10 +52532,7 @@ int __fastcall SOUND_play_async(const char *filename, BOOL looping, int volume, 
   flags = v6->flags;
   LOBYTE(flags) = flags | 8;
   v6->flags = flags;
-  g_coroutine_eax = flags;
-  v15 = g_coroutine_current;
-  if ( g_coroutine_list_head != v15 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_STACK_RETURN();
   return v6->id;
 }
 
@@ -53835,6 +52619,8 @@ void __cdecl SOUND_thread(SoundStream *snd)
     prev = v1->prev;
     if ( prev )
       prev->next = v1->next;
+    if ( g_sounds_head == v1 )                   // node was head: advance, else head dangles at recycled node
+      g_sounds_head = next;
     v1->next = g_sounds_free_head;
     g_sounds_free_head = v1;
     _endthread();
@@ -53855,6 +52641,8 @@ void __cdecl SOUND_thread(SoundStream *snd)
     v43 = v1->prev;
     if ( v43 )
       v43->next = v1->next;
+    if ( g_sounds_head == v1 )                   // node was head: advance, else head dangles at recycled node
+      g_sounds_head = v42;
     v1->next = g_sounds_free_head;
     g_sounds_free_head = v1;
     _endthread();
@@ -54160,123 +52948,66 @@ void SOUND_unload_bank()
 }
 
 //----- (0043A370) --------------------------------------------------------
-void SOUND_tick()
+static int SOUND_nearest_table_index(const int *table, int count, int value, int fallback)
 {
-  SoundStream *v0; // esi
-  IDirectSoundBuffer *dsb; // eax
-  SoundStream *next; // edi
-  IDirectSoundBuffer *v3; // eax
-  int *p_volume; // edi
-  int v5; // ebx
-  int v6; // ebp
-  int *v7; // ecx
-  signed int v8; // eax
-  IDirectSoundBuffer *v9; // ecx
-  int v10; // eax
-  IDirectSoundBuffer *v11; // eax
-  int *p_pan; // edi
-  int v13; // ebx
-  int v14; // ebp
-  int *v15; // ecx
-  signed int v16; // eax
-  IDirectSoundBuffer *v17; // ecx
-  int v18; // eax
-  int i; // [esp+1Ch] [ebp-8h] BYREF
-  int v20; // [esp+20h] [ebp-4h]
+  int best_index = fallback;
+  int best_diff = 100000;
 
-  v0 = g_sounds_head;
-  for ( i = 0; v0 != &g_47C398_sentinel; v0 = v0->next )
-  {
-    if ( !v0 )
+  for (int i = 0; i < count; i++) {
+    int diff = abs(table[i] - value);
+    if (diff == 0) {
+      return i;
+    }
+    if (diff < best_diff) {
+      best_diff = diff;
+      best_index = i;
+    }
+  }
+  return best_index;
+}
+
+void SOUND_tick(void) {
+  DWORD status;
+  for (SoundStream *stream = g_sounds_head; stream != &g_47C398_sentinel; stream = stream->next) {
+    if (!stream) {
       break;
-    if ( (v0->flags & 8) == 0 )
-    {
-      dsb = v0->dsb;
-      if ( dsb )
-      {
-        dsb->lpVtbl->GetStatus(dsb, (LPDWORD)&i);
-        if ( (i & 1) != 0 || (v0->flags & 4) != 0 )
-        {
-          if ( v0->vol_transition_remaining_ticks ) // INLINED MMM
-          {
-            v3 = v0->dsb;
-            p_volume = &v0->volume;
-            --v0->vol_transition_remaining_ticks;
-            v3->lpVtbl->GetVolume(v3, (LPLONG)&v0->volume);
-            v5 = 100000;
-            v6 = 0;
-            v20 = 17;
-            v7 = g_sound_volumes;
-            while ( 1 )
-            {
-              v8 = abs(*v7 - *p_volume);
-              if ( !v8 )
-                break;
-              if ( v5 > v8 )
-              {
-                v20 = v6;
-                v5 = v8;
-              }
-              ++v7;
-              ++v6;
-              if ( (int)v7 >= (int)&g_sound_volumes[17] )
-              {
-                v6 = v20;
-                break;
-              }
-            }
-            v9 = v0->dsb;
-            v10 = v0->vol_transition_per_tick + v6;
-            *p_volume = v10;
-            v9->lpVtbl->SetVolume(v9, g_sound_pans[v10]);
-            if ( !v0->vol_transition_remaining_ticks && v0->task )
-              TSK_send_message(nullptr, TaskMessage_SoundVolumeTransitionComplete, nullptr, v0->task);
-          }
-          if ( v0->pan_transition_remaining_ticks ) // INLINED MMM
-          {
-            v11 = v0->dsb;
-            p_pan = &v0->pan;
-            --v0->pan_transition_remaining_ticks;
-            v11->lpVtbl->GetPan(v11, (LPLONG)&v0->pan);
-            v13 = 100000;
-            v14 = 0;
-            v20 = 16;
-            v15 = g_sound_pans;
-            while ( 1 )
-            {
-              v16 = abs(*v15 - *p_pan);
-              if ( !v16 )
-                break;
-              if ( v13 > v16 )
-              {
-                v20 = v14;
-                v13 = v16;
-              }
-              ++v15;
-              ++v14;
-              if ( (int)v15 >= (int)&g_sound_pans[32] )
-              {
-                v14 = v20;
-                break;
-              }
-            }
-            v17 = v0->dsb;
-            v18 = v0->pan_transition_per_tick + v14;
-            *p_pan = v18;
-            v17->lpVtbl->SetPan(v17, g_sound_pans[v18]);
-            if ( !v0->pan_transition_remaining_ticks )
-            {
-              if ( v0->task )
-                TSK_send_message(nullptr, TaskMessage_SoundPanTransitionComplete, nullptr, v0->task);
-            }
-          }
-        }
-        else
-        {
-          next = v0->next;
-          SOUND_slot_cleanup(v0);
-          v0 = next;
-        }
+    }
+    if ((stream->flags & 8) != 0) {
+      continue;
+    }
+
+    IDirectSoundBuffer *dsb = stream->dsb;
+    if (!dsb) {
+      continue;
+    }
+
+    dsb->lpVtbl->GetStatus(dsb, &status);
+    if ((status & 1) == 0 && (stream->flags & 4) == 0) {
+      SoundStream *next = stream->next;
+      SOUND_slot_cleanup(stream);
+      stream = next;
+      continue;
+    }
+
+    if (stream->vol_transition_remaining_ticks) { // INLINED MMM
+      --stream->vol_transition_remaining_ticks;
+      dsb->lpVtbl->GetVolume(dsb, (LPLONG)&stream->volume);
+      int vol_index = SOUND_nearest_table_index(g_sound_volumes, 17, stream->volume, 17);
+      stream->volume = stream->vol_transition_per_tick + vol_index;
+      dsb->lpVtbl->SetVolume(dsb, g_sound_pans[stream->volume]);
+      if (!stream->vol_transition_remaining_ticks && stream->task) {
+        TSK_send_message(nullptr, TaskMessage_SoundVolumeTransitionComplete, nullptr, stream->task);
+      }
+    }
+
+    if (stream->pan_transition_remaining_ticks) { // INLINED MMM
+      --stream->pan_transition_remaining_ticks;
+      dsb->lpVtbl->GetPan(dsb, (LPLONG)&stream->pan);
+      int pan_index = SOUND_nearest_table_index(g_sound_pans, 32, stream->pan, 16);
+      stream->pan = stream->pan_transition_per_tick + pan_index;
+      dsb->lpVtbl->SetPan(dsb, g_sound_pans[stream->pan]);
+      if (!stream->pan_transition_remaining_ticks && stream->task) {
+        TSK_send_message(nullptr, TaskMessage_SoundPanTransitionComplete, nullptr, stream->task);
       }
     }
   }
@@ -54509,6 +53240,8 @@ void __fastcall SOUND_slot_cleanup(SoundStream *sound)
     prev = sound->prev;
     if ( prev )
       prev->next = sound->next;
+    if ( g_sounds_head == sound )               // node was list head: advance head, else it dangles at a recycled node
+      g_sounds_head = next;
     sound->next = g_sounds_free_head;
     g_sounds_free_head = sound;
   }
@@ -55518,14 +54251,10 @@ LABEL_14:
   v3 = 15360;
   v4 = 10240;
 LABEL_21:
-  v1->is_collidable = 1;
-  v7 = v3 + entity->x;
-  entity->is_collidable = 1;
-  v1->x = v7;
-  v1->is_collidable = 1;
-  v8 = v4 + entity->y;
-  v1->is_collidable = 1;
-  v1->y = v8;
+  v7 = v3 + ENT_X(entity);
+  ENT_X(v1) = v7;
+  v8 = v4 + ENT_Y(entity);
+  ENT_Y(v1) = v8;
   INPUT_set_mouse_pos(v7 >> 8, v8 >> 8);
 }
 
@@ -55620,12 +54349,10 @@ void __cdecl UI_menu_controller(Task *task)
     if ( !g_ui_input_locked )
     {
       INPUT_get_mouse_state(&state);
-      entity->is_collidable = 1;
       cursor_x = state.cursor_x;
       x = g_mapd_camera.x;
-      entity->is_collidable = 1;
-      entity->x = x + cursor_x;
-      entity->y = g_mapd_camera.y + state.cursor_y;
+      ENT_X(entity) = x + cursor_x;
+      ENT_Y(entity) = g_mapd_camera.y + state.cursor_y;
       INPUT_get_keyboard_state(&v15);
       new_actions_mask = v15.new_actions_mask;
       if ( !g_fade_lock )
@@ -55647,8 +54374,7 @@ void __cdecl UI_menu_controller(Task *task)
               FADE_in(task);
               UI_widgets_destroy_all(task);
               g_game_loop = GameLoop_PreviousScreen;
-              ENT_remove(task->entity);
-              TSK_schedule_self_destruct(task);
+              TSK_terminate_with_entity(task);
             }
           }
           v10 = g_widgets_head;
@@ -55802,8 +54528,7 @@ void __cdecl UI_select_main_menu(Task *task)
     }
     ENT_create_ex(MobdId_MainMenuButtons, nullptr, UI_menu_controller, TaskKind_Coroutine, nullptr);
   }
-  ENT_remove(task->entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (0043C0E0) --------------------------------------------------------
@@ -56746,7 +55471,6 @@ void __fastcall UI_main_menu_multi_player_name_input_cb(char *text, int cursor_p
   g_work_ui_str->cursor_col = 0;
   g_work_ui_str->cursor_row = 0;
   UISTR_append_text(g_work_ui_str, text, nullptr);
-  g_ui_input_cursor_entity->is_collidable = 1;
   glyphs = g_work_ui_str->glyphs;
   v4 = g_work_ui_str->cols + cursor_pos_ + 1;
   if ( g_work_ui_str->cols + cursor_pos_ != -1 )
@@ -56758,9 +55482,8 @@ void __fastcall UI_main_menu_multi_player_name_input_cb(char *text, int cursor_p
     }
     while ( v4 );
   }
-  g_ui_input_cursor_entity->x = glyphs->rn->cmd.x << 8;
-  g_ui_input_cursor_entity->is_collidable = 1;
-  g_ui_input_cursor_entity->y = 0xB400;
+  ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
+  ENT_Y(g_ui_input_cursor_entity) = 0xB400;
 }
 
 //----- (0043DA80) --------------------------------------------------------
@@ -56787,8 +55510,7 @@ void __cdecl UI_main_menu_multi_player_name_input(Task *task)
   g_work_ui_str = UI_str_create(nullptr, (FontMobd *)g_mobd[80].layers[0], 346, 164, 22, 3, 90, 14, 16);
   if ( !g_work_ui_str )
   {
-    ENT_remove(entity);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_with_entity(task);
   }
   entity->x = 0x16800;
   entity->y = 0xB000;
@@ -56841,18 +55563,15 @@ LABEL_16:
       }
     }
     while ( !v6 );
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->x = 0x16A00;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->y = 0xB400;
-    g_ui_input_cursor_entity->z = 10;
+    ENT_X(g_ui_input_cursor_entity) = 0x16A00;
+    ENT_Y(g_ui_input_cursor_entity) = 0xB400;
+    ENT_Z(g_ui_input_cursor_entity) = 10;
     ENT_anim_set(g_ui_input_cursor_entity, 1096);
     g_ui_input_locked = 1;
     INPUT_text_edit(name, 11u, UI_main_menu_multi_player_name_input_cb, 1, task);
     v10 = g_current_menu_controller->entity;
-    v11 = v10->y >> 8;
-    v12 = v10->x >> 8;
-    v10->is_collidable = 1;
+    v11 = ENT_Y(v10) >> 8;
+    v12 = ENT_X(v10) >> 8;
     INPUT_set_mouse_pos(v12, v11);
     g_ui_input_locked = 0;
     for ( j = 0; j < 10; ++j )
@@ -56864,10 +55583,8 @@ LABEL_16:
         name[j] = '_';
     }
     name[11] = 0;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->x = 0x16A00;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->y = 0xB400;
+    ENT_X(g_ui_input_cursor_entity) = 0x16A00;
+    ENT_Y(g_ui_input_cursor_entity) = 0xB400;
     ENT_anim_clear(g_ui_input_cursor_entity);
   }
 }
@@ -56882,7 +55599,6 @@ void __fastcall UI_main_menu_multi_phone_number_input_cb(char *text, int cursor_
   g_phone_number_static->cursor_col = 0;
   g_phone_number_static->cursor_row = 0;
   UISTR_append_text(g_phone_number_static, text, nullptr);
-  g_ui_input_cursor_entity->is_collidable = 1;
   glyphs = g_phone_number_static->glyphs;
   v4 = g_phone_number_static->cols + (unsigned __int16)cursor_pos + 1;
   if ( g_phone_number_static->cols + (unsigned __int16)cursor_pos != -1 )
@@ -56894,9 +55610,8 @@ void __fastcall UI_main_menu_multi_phone_number_input_cb(char *text, int cursor_
     }
     while ( v4 );
   }
-  g_ui_input_cursor_entity->x = glyphs->rn->cmd.x << 8;
-  g_ui_input_cursor_entity->is_collidable = 1;
-  g_ui_input_cursor_entity->y = 0xEC00;
+  ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
+  ENT_Y(g_ui_input_cursor_entity) = 0xEC00;
 }
 
 //----- (0043DD90) --------------------------------------------------------
@@ -56931,8 +55646,7 @@ void __cdecl UI_main_menu_multi_phone_number_input(Task *task)
   g_phone_number_static = UI_str_create(nullptr, (FontMobd *)g_mobd[80].layers[0], 320, 220, 22, 3, 90, 14, 16);
   if ( !g_phone_number_static )
   {
-    ENT_remove(entity);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_with_entity(task);
   }
   entity->x = 0x14E00;
   entity->y = 0xE800;
@@ -56984,11 +55698,9 @@ LABEL_16:
       }
     }
     while ( !v4 );
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->x = 0x15000;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->y = 0xEC00;
-    g_ui_input_cursor_entity->z = 10;
+    ENT_X(g_ui_input_cursor_entity) = 0x15000;
+    ENT_Y(g_ui_input_cursor_entity) = 0xEC00;
+    ENT_Z(g_ui_input_cursor_entity) = 10;
     ENT_anim_set(g_ui_input_cursor_entity, 1096);
     g_ui_input_locked = 1;
     INPUT_text_edit(phone, 11u, UI_main_menu_multi_phone_number_input_cb, 1, task);
@@ -57011,15 +55723,12 @@ LABEL_16:
     *(int *)&phonebook_->phone[4] = v13;
     *(int *)&phonebook_->phone[8] = v14;
     v15 = g_current_menu_controller->entity;
-    v16 = v15->y >> 8;
-    v17 = v15->x >> 8;
-    v15->is_collidable = 1;
+    v16 = ENT_Y(v15) >> 8;
+    v17 = ENT_X(v15) >> 8;
     INPUT_set_mouse_pos(v17, v16);
     g_ui_input_locked = 0;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->x = 0x15000;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->y = 0xEC00;
+    ENT_X(g_ui_input_cursor_entity) = 0x15000;
+    ENT_Y(g_ui_input_cursor_entity) = 0xEC00;
     ENT_anim_clear(g_ui_input_cursor_entity);
     phone = (char *)phonebook_ + 0x14;                 // BUG  it's ->phone
     v4 = 0;
@@ -57042,8 +55751,7 @@ void __cdecl UI_main_menu_multi_modem_baud_selector(Task *task)
   v3 = UI_str_create(nullptr, (FontMobd *)g_mobd[80].layers[0], 296, 274, 12, 3, 90, 14, 16);
   if ( !v3 )
   {
-    ENT_remove(entity);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_with_entity(task);
   }
   entity->x = 0x7F00;
   entity->y = 0x10800;
@@ -57803,8 +56511,7 @@ void __cdecl UI_main_menu_multi_modem_add(Task *task)
   g_work_ui_str = v5;
   if ( !v5 )
   {
-    ENT_remove(taska);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_with_entity(task);
     v5 = g_work_ui_str;
   }
   entity = task->entity;
@@ -57860,16 +56567,11 @@ void __cdecl UI_main_menu_multi_modem_connect(Task *task)
   Entity *v2; // eax
   NetzMobemPhonebook *v3; // eax
   int i; // ecx
-  Coroutine *v5; // et1
   NetzError v6; // esi
-  Coroutine *v7; // et1
-  Coroutine *v8; // et1
-  Coroutine *v9; // et1
   MenuId v10; // ecx
   MenuWidget *v11; // eax
   int j; // ecx
   LevelMapd *mapd; // eax
-  _BYTE v14[12]; // [esp+0h] [ebp-Ch] BYREF
 
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenu, nullptr, entity);
@@ -57891,24 +56593,12 @@ void __cdecl UI_main_menu_multi_modem_connect(Task *task)
         break;
       v3 = v3->next;
     }
-    g_coroutine_eax = (UINT)v3;
-    v5 = g_coroutine_current;
-    if ( g_coroutine_list_head != v5 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v14;
-    v6 = NETZ_switch_host_or_join(0);
-    g_coroutine_eax = v6;
-    v7 = g_coroutine_current;
-    if ( g_coroutine_list_head != v7 )
-      --g_coroutine_nesting_depth;
-    v8 = g_coroutine_current;
-    if ( g_coroutine_list_head != v8 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v14;
-    ShowCursor(1);
-    NETZ_poll(0, 0);
-    g_coroutine_eax = ShowCursor(0);
-    v9 = g_coroutine_current;
-    if ( g_coroutine_list_head != v9 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK(v6 = NETZ_switch_host_or_join(0));
+    COROUTINE_RUN_ON_MAIN_STACK({
+      ShowCursor(1);
+      NETZ_poll(0, 0);
+      ShowCursor(0);
+    });
   }
   while ( v6 );
   v10 = g_current_menu;                         // INLINED 443C40
@@ -57951,14 +56641,11 @@ void __cdecl UI_main_menu_multi_modem_host(Task *task)
   Entity *v2; // eax
   NetzMobemPhonebook *v3; // eax
   int i; // ecx
-  Coroutine *v5; // et1
   NetzError v6; // esi
-  Coroutine *v7; // et1
   MenuId v8; // ecx
   MenuWidget *v9; // eax
   int j; // ecx
   LevelMapd *mapd; // eax
-  int v12; // [esp+0h] [ebp-Ch] BYREF
 
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenu, nullptr, entity);
@@ -57980,16 +56667,11 @@ void __cdecl UI_main_menu_multi_modem_host(Task *task)
         break;
       v3 = v3->next;
     }
-    g_coroutine_eax = (UINT)v3;
-    v5 = g_coroutine_current;
-    if ( g_coroutine_list_head != v5 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = &v12;
-    ShowCursor(1);
-    v6 = NETZ_switch_host_or_join(1);
-    g_coroutine_eax = ShowCursor(0);
-    v7 = g_coroutine_current;
-    if ( g_coroutine_list_head != v7 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      ShowCursor(1);
+      v6 = NETZ_switch_host_or_join(1);
+      ShowCursor(0);
+    });
   }
   while ( v6 );
   v8 = g_current_menu;                          // INLINED 443C40
@@ -58139,13 +56821,10 @@ void __cdecl UI_main_menu_multi_lobby_list(Task *task)
   Entity *v2; // esi
   UiStr *v3; // edi
   MenuWidget *v4; // eax
-  Coroutine *v6; // et1
-  Coroutine *v7; // et1
   int v8; // ebx
   NetzPlayer * player; // esi
   const char *v10; // edx
   TaskMessage *i; // eax
-  int v12; // [esp+0h] [ebp-14h] BYREF
   TaskEvents v13; // [esp+Ch] [ebp-8h]
   int v14; // [esp+10h] [ebp-4h]
 
@@ -58166,30 +56845,21 @@ void __cdecl UI_main_menu_multi_lobby_list(Task *task)
          16);
   if ( !v3 )
   {
-    ENT_remove(v2);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_and_entity(task, v2);
   }
   v4 = UI_widget_register(v2, v3, 0, 1, 0);
   v4->flags |= 1u;
   ENT_anim_set(v2, 1080);
-  v2->x = 0x5300;
-  v2->is_collidable = 1;
-  v2->y = 0xEB00;
-  v2->z = 77;
+  ENT_X(v2) = 0x5300;
+  ENT_Y(v2) = 0xEB00;
+  ENT_Z(v2) = 77;
   v2->rn->flags |= RenderNode_Skip;
   if ( g_lobby_list_guard_unused++ > 0 )
     g_lobby_list_guard_unused = 0;
   while ( 1 )
   {
     v13 = TSK_yield(v1, TaskWait_Any, 1);
-    g_coroutine_eax = v13;
-    v6 = g_coroutine_current;
-    if ( g_coroutine_list_head != v6 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = &v12;
-    g_coroutine_eax = NETZ_poll(0, 0);
-    v7 = g_coroutine_current;
-    if ( g_coroutine_list_head != v7 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK(NETZ_poll(0, 0));
     if ( v14 )
     {
       UI_str_clear(v3);
@@ -58349,16 +57019,14 @@ void __cdecl UI_main_menu_multi_session_list(Task *task)
              16);
       if ( !v6 )
       {
-        ENT_remove(entity);
-        TSK_schedule_self_destruct(task);
+        TSK_terminate_and_entity(task, entity);
       }
       v7 = UI_widget_register(entity, v6, 0, 1, 0);
       v7->flags |= 1u;
       ENT_anim_set(v5, 1080);
-      v5->x = 0xC500;
-      v5->is_collidable = 1;
-      v5->y = 0x9800;
-      v5->z = 77;
+      ENT_X(v5) = 0xC500;
+      ENT_Y(v5) = 0x9800;
+      ENT_Z(v5) = 77;
       g_session_prev_count = -1;
       v18 = 1;
       while ( 1 )
@@ -58372,15 +57040,7 @@ void __cdecl UI_main_menu_multi_session_list(Task *task)
         {
           if ( (v9 & TaskWait_Interval) != 0 && !g_netz_is_game_host )
           {
-            g_coroutine_eax = 0;
-            v10 = g_coroutine_current;
-            if ( g_coroutine_list_head != v10 && ++g_coroutine_nesting_depth == 1 )
-              g_coroutine_esp = &v16;
-            g_netz_should_enum_sessions = 1;
-            g_coroutine_eax = NETZ_poll(0, 0);
-            v11 = g_coroutine_current;
-            if ( g_coroutine_list_head != v11 )
-              --g_coroutine_nesting_depth;
+            COROUTINE_RUN_ON_MAIN_STACK(NETZ_poll(0, 0));
           }
           UI_str_clear(v6);
           v12 = 0;
@@ -58434,11 +57094,10 @@ void __cdecl UI_main_menu_multi_session_list(Task *task)
           }
         }
         v15 = g_session_selected;
-        v5->is_collidable = 1;
         if ( v15 <= 0 )
-          v5->y = 0x9800;
+          ENT_Y(v5) = 0x9800;
         else
-          v5->y = (g_session_selected << 12) + 0x9800;
+          ENT_Y(v5) = (g_session_selected << 12) + 0x9800;
       }
     }
   }
@@ -58543,16 +57202,7 @@ void __cdecl UI_main_menu_multi_join(Task *task)
     ENT_anim_set_frame(v4, 1824, 3);
     g_netz_remote_host_slot = -1;
     g_kaos_game_settings.settings = 1280;
-    g_coroutine_eax = v5;
-    v6 = g_coroutine_current;
-    if ( g_coroutine_list_head != v6 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v19;
-    player = NETZ_create_player(g_session_selected);
-    g_coroutine_eax = player;
-    v8 = g_coroutine_current;
-    if ( g_coroutine_list_head != v8 )
-      --g_coroutine_nesting_depth;
-    v9 = g_coroutine_eax;
+    COROUTINE_RUN_ON_MAIN_STACK(player = NETZ_create_player(g_session_selected));
     if ( player == NetzError_Ok )
     {
       v9 = -1;
@@ -58560,14 +57210,8 @@ void __cdecl UI_main_menu_multi_join(Task *task)
       g_netz_join_state = NetzJoinState_Connecting;
       while ( (g_netz_remote_host_slot == -1 || v9 == (unsigned int)-1) && v10 < 1800 )
       {
-        g_coroutine_eax = TSK_yield(task, TaskWait_Interval, 1);
-        v11 = g_coroutine_current;
-        if ( g_coroutine_list_head != v11 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = v19;
-        g_coroutine_eax = NETZ_poll(0, 0);
-        v12 = g_coroutine_current;
-        if ( g_coroutine_list_head != v12 )
-          --g_coroutine_nesting_depth;
+        TSK_yield(task, TaskWait_Interval, 1);
+        COROUTINE_RUN_ON_MAIN_STACK(NETZ_poll(0, 0));
         v9 = g_netz_join_state;
         ++v10;
       }
@@ -58575,15 +57219,7 @@ void __cdecl UI_main_menu_multi_join(Task *task)
         break;
     }
     g_netz_remote_host_slot = -1;
-    g_coroutine_eax = v9;
-    v13 = g_coroutine_current;
-    if ( g_coroutine_list_head != v13 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v19;
-    NETZ_session_close();
-    g_coroutine_eax = v14;
-    v15 = g_coroutine_current;
-    if ( g_coroutine_list_head != v15 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK(NETZ_session_close());
     NETZ_join_locally();
   }
   g_previous_menu = g_current_menu;             // INLINED 443C40
@@ -58652,15 +57288,7 @@ void __cdecl UI_main_menu_multi_host(Task *task)
   srand(v4);
   v5 = strlen(g_ui_multi_player_name) + 1;
   memcpy(g_netz_players[g_netz_local_player_slot + 1].name, g_ui_multi_player_name, v5);
-  g_coroutine_eax = v5;
-  v6 = g_coroutine_current;
-  if ( g_coroutine_list_head != v6 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v13;
-  v7 = NETZ_switch_host_or_join(1);
-  g_coroutine_eax = v7;
-  v8 = g_coroutine_current;
-  if ( g_coroutine_list_head != v8 )
-    --g_coroutine_nesting_depth;
+  COROUTINE_RUN_ON_MAIN_STACK(v7 = NETZ_switch_host_or_join(1));
   if ( v7 == NetzError_Ok )
   {
     v9 = g_current_menu;
@@ -58761,14 +57389,7 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
     srand(v6);
     v7 = strlen(g_ui_multi_player_name) + 1;
     memcpy(g_netz_players[g_netz_local_player_slot + 1].name, g_ui_multi_player_name, v7);
-    g_coroutine_eax = v7;
-    v8 = g_coroutine_current;
-    if ( g_coroutine_list_head != v8 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = &v20;
-    g_coroutine_eax = NETZ_switch_host_or_join(1);
-    v9 = g_coroutine_current;
-    if ( g_coroutine_list_head != v9 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK(NETZ_switch_host_or_join(1));
     v1 = task;
   }
   v10 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_player_name, TaskKind_Coroutine, nullptr);
@@ -58831,8 +57452,7 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
     if ( v19 )
       v19->channel = v1->channel;
   }
-  ENT_remove(entity);
-  TSK_schedule_self_destruct(v1);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (00440770) --------------------------------------------------------
@@ -58845,7 +57465,6 @@ void __fastcall UI_main_menu_game_player_name_cb(char *text, int cursor_pos)
   g_work_ui_str->cursor_col = 0;
   g_work_ui_str->cursor_row = 0;
   UISTR_append_text(g_work_ui_str, text, nullptr);
-  g_ui_input_cursor_entity->is_collidable = 1;
   glyphs = g_work_ui_str->glyphs;
   v4 = g_work_ui_str->cols + (unsigned __int16)cursor_pos + 1;
   if ( g_work_ui_str->cols + (unsigned __int16)cursor_pos != -1 )
@@ -58857,9 +57476,8 @@ void __fastcall UI_main_menu_game_player_name_cb(char *text, int cursor_pos)
     }
     while ( v4 );
   }
-  g_ui_input_cursor_entity->x = glyphs->rn->cmd.x << 8;
-  g_ui_input_cursor_entity->is_collidable = 1;
-  g_ui_input_cursor_entity->y = 0x5800;
+  ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
+  ENT_Y(g_ui_input_cursor_entity) = 0x5800;
 }
 
 //----- (00440810) --------------------------------------------------------
@@ -58893,15 +57511,13 @@ void __cdecl UI_main_menu_game_player_name(Task *task)
   g_work_ui_str = UI_str_create(nullptr, (FontMobd *)g_mobd[80].layers[0], 144, 72, 14, 3, 9, 14, 16);
   if ( !g_work_ui_str )
   {
-    ENT_remove(entity);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_with_entity(task);
   }
   g_ui_input_cursor_entity = ENT_create(MobdId_Font_Menu, nullptr, entity);
   if ( !g_ui_input_cursor_entity )
   {
-    ENT_remove(entity);
     UIS_str_free(g_work_ui_str);
-    TSK_schedule_self_destruct(task);
+    TSK_terminate_with_entity(task);
   }
   if ( g_current_menu != MenuId_Kaos && !g_netz_is_game_host )
   {
@@ -58912,7 +57528,6 @@ void __cdecl UI_main_menu_game_player_name(Task *task)
   g_work_ui_str->cursor_col = 0;
   g_work_ui_str->cursor_row = 0;
   UISTR_append_text(g_work_ui_str, g_ui_multi_player_name, nullptr);
-  g_ui_input_cursor_entity->is_collidable = 1;
   glyphs = g_work_ui_str->glyphs;
   v4 = g_work_ui_str->cols + 1;
   if ( g_work_ui_str->cols != -1 )
@@ -58924,9 +57539,8 @@ void __cdecl UI_main_menu_game_player_name(Task *task)
     }
     while ( v4 );
   }
-  g_ui_input_cursor_entity->x = glyphs->rn->cmd.x << 8;
-  g_ui_input_cursor_entity->is_collidable = 1;
-  g_ui_input_cursor_entity->y = 0x5800;
+  ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
+  ENT_Y(g_ui_input_cursor_entity) = 0x5800;
   entity->parent = g_ui_input_cursor_entity;
   v5 = v1->entity;
   v6 = g_work_ui_str;
@@ -58934,9 +57548,8 @@ void __cdecl UI_main_menu_game_player_name(Task *task)
   v1->channel = TaskChannel_TextInput;
   UI_widget_register(v5, v6, 0, 0, 0);
   ENT_anim_set(v5, 1368);
-  entity->x = 0xA000;
-  entity->is_collidable = 1;
-  entity->y = 0x5800;
+  ENT_X(entity) = 0xA000;
+  ENT_Y(entity) = 0x5800;
   while ( 1 )
   {
     if ( g_current_menu != MenuId_Kaos )
@@ -58981,18 +57594,15 @@ LABEL_29:
       }
     }
     while ( !v8 );
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->x = 0xA000;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->y = 0x5800;
-    g_ui_input_cursor_entity->z = 10;
+    ENT_X(g_ui_input_cursor_entity) = 0xA000;
+    ENT_Y(g_ui_input_cursor_entity) = 0x5800;
+    ENT_Z(g_ui_input_cursor_entity) = 10;
     ENT_anim_set(g_ui_input_cursor_entity, 1096);
     g_ui_input_locked = 1;
     INPUT_text_edit(g_ui_multi_player_name, 8u, UI_main_menu_game_player_name_cb, 1, v1);
     v12 = g_current_menu_controller->entity;
-    v13 = v12->y >> 8;
-    v14 = v12->x >> 8;
-    v12->is_collidable = 1;
+    v13 = ENT_Y(v12) >> 8;
+    v14 = ENT_X(v12) >> 8;
     INPUT_set_mouse_pos(v14, v13);
     v15 = 0;
     g_ui_input_locked = 0;
@@ -59007,29 +57617,18 @@ LABEL_29:
     }
     while ( v15 < 7 );
     LOBYTE(g_netz_player_flags) = 0;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->x = 0xA000;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->y = 0x5800;
+    ENT_X(g_ui_input_cursor_entity) = 0xA000;
+    ENT_Y(g_ui_input_cursor_entity) = 0x5800;
     ENT_anim_clear(g_ui_input_cursor_entity);
     if ( g_current_menu != MenuId_Kaos && g_netz_is_game_host )
     {
-      g_coroutine_eax = g_netz_is_game_host;
-      v17 = g_coroutine_current;
-      if ( g_coroutine_list_head != v17 && ++g_coroutine_nesting_depth == 1 )
-        g_coroutine_esp = &v22;
-      NETZ_session_set_name(g_ui_multi_player_name);
-      g_coroutine_eax = v18;
-      v19 = g_coroutine_current;
-      if ( g_coroutine_list_head != v19 )
-        --g_coroutine_nesting_depth;
+      COROUTINE_RUN_ON_MAIN_STACK(NETZ_session_set_name(g_ui_multi_player_name));
     }
     strcpy(g_netz_players[g_netz_local_player_slot + 1].name, g_ui_multi_player_name);
     UI_str_clear(g_work_ui_str);
     g_work_ui_str->cursor_col = 0;
     g_work_ui_str->cursor_row = 0;
     UISTR_append_text(g_work_ui_str, g_ui_multi_player_name, nullptr);
-    g_ui_input_cursor_entity->is_collidable = 1;
     v20 = g_work_ui_str->glyphs;
     v21 = g_work_ui_str->cols + 1;
     if ( g_work_ui_str->cols != -1 )
@@ -59041,9 +57640,8 @@ LABEL_29:
       }
       while ( v21 );
     }
-    g_ui_input_cursor_entity->x = v20->rn->cmd.x << 8;
-    g_ui_input_cursor_entity->is_collidable = 1;
-    g_ui_input_cursor_entity->y = 0x5800;
+    ENT_X(g_ui_input_cursor_entity) = v20->rn->cmd.x << 8;
+    ENT_Y(g_ui_input_cursor_entity) = 0x5800;
     if ( g_current_menu != MenuId_Kaos )
       NETZ_send_roster(NETZ_PKT_LOBBY_PLAYERS_BROADCAST, 0);
     v1 = task;
@@ -59687,26 +58285,15 @@ void __cdecl UI_main_menu_game_cancel(Task *task)
   }
   else
   {
-    g_coroutine_eax = 15;
-    v4 = g_coroutine_current;
-    if ( g_coroutine_list_head != v4 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v18;
-    NETZ_send(-1, NETZ_PKT_LOBBY_GAME_CANCELLED_BROADCAST, nullptr, 0, 1);
-    NETZ_poll(0, 0);
-    NETZ_session_close();
-    g_coroutine_eax = v5;
-    v6 = g_coroutine_current;
-    if ( g_coroutine_list_head != v6 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      NETZ_send(-1, NETZ_PKT_LOBBY_GAME_CANCELLED_BROADCAST, nullptr, 0, 1);
+      NETZ_poll(0, 0);
+      NETZ_session_close();
+    });
     NETZ_join_locally();
-    g_coroutine_eax = v7;
-    v8 = g_coroutine_current;
-    if ( g_coroutine_list_head != v8 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v18;
-    g_coroutine_eax = NETZ_switch_host_or_join(0);
-    v9 = g_coroutine_current;
-    if ( g_coroutine_list_head != v9 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      NETZ_switch_host_or_join(0);
+    });
   }
   if ( g_netz_protocol == NetzProtocol_Serial || g_netz_protocol == NetzProtocol_IPX )
   {
@@ -59773,8 +58360,6 @@ void __cdecl UI_main_menu_game_cancel(Task *task)
   FADE_out(task);
   TSK_schedule_self_destruct(task);
 }
-// 441A8A: variable 'v5' is possibly undefined
-// 441AB4: variable 'v7' is possibly undefined
 
 //----- (00441CE0) --------------------------------------------------------
 void __cdecl UI_main_menu_game_start(Task *task)
@@ -59845,15 +58430,9 @@ void __cdecl UI_main_menu_game_start(Task *task)
   else
   {
     task = (Task *)v7;                    // BUG reuse
-    g_coroutine_eax = v6;
-    v9 = g_coroutine_current;
-    if ( g_coroutine_list_head != v9 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = &v13;
-    NETZ_disable_joining();
-    g_coroutine_eax = v10;
-    v11 = g_coroutine_current;
-    if ( g_coroutine_list_head != v11 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      NETZ_disable_joining();
+    });
     NETZ_broadcast_mandatory_response(NETZ_PKT_LOBBY_START_WITH_SEED, &task, 4u);
     g_is_kaos_mode = 0;
     g_is_single_player = 0;
@@ -59870,7 +58449,6 @@ void __cdecl UI_main_menu_game_start(Task *task)
   }
   g_current_menu_controller = nullptr;
 }
-// 441DF3: variable 'v10' is possibly undefined
 
 //----- (00441EF0) --------------------------------------------------------
 void __fastcall GAME_settings_set(KaosSettings *settings)
@@ -60024,8 +58602,7 @@ void __cdecl UI_main_menu_game_allies_count_and_lobby_watch(Task *task)
     v15->x = 0x17C00;
     v15->y = 0x9600;
   }
-  ENT_remove(v5);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (004421F0) --------------------------------------------------------
@@ -60042,7 +58619,7 @@ void __cdecl UI_main_menu_game_difficulty_or_leave_lobby_as_client(Task *task)
   Coroutine *v9; // et1
   Entity *v10; // eax
   int v11; // edx
-  int v12; // ecx
+  int v12; // ecx;
   MenuId v13; // ecx
   LevelMapd *mapd; // eax
   int v15; // ecx
@@ -60093,23 +58670,17 @@ void __cdecl UI_main_menu_game_difficulty_or_leave_lobby_as_client(Task *task)
     g_game_loop = GameLoop_PreviousScreen;
   while ( !UI_button_tick(task, 2044, 1, 0) )
     ;
-  g_coroutine_eax = (UINT)NETZ_send_to_host(NETZ_PKT_BROADCAST_PLAYER_KICKED, nullptr, 0);
-  v7 = g_coroutine_current;
-  if ( g_coroutine_list_head != v7 && ++g_coroutine_nesting_depth == 1 )
-    g_coroutine_esp = &v19;
-  NETZ_poll(0, 0);
-  NETZ_session_close();
-  g_coroutine_eax = v8;
-  v9 = g_coroutine_current;
-  if ( g_coroutine_list_head != v9 )
-    --g_coroutine_nesting_depth;
+  NETZ_send_to_host(NETZ_PKT_BROADCAST_PLAYER_KICKED, nullptr, 0);
+  COROUTINE_RUN_ON_MAIN_STACK({
+    NETZ_poll(0, 0);
+    NETZ_session_close();
+  });
   NETZ_join_locally();
   if ( g_ui_input_locked )
   {
     v10 = g_current_menu_controller->entity;
-    v11 = v10->y >> 8;
-    v12 = v10->x >> 8;
-    v10->is_collidable = 1;
+    v11 = ENT_X(v10) >> 8;
+    v12 = ENT_Y(v10) >> 8;
     INPUT_set_mouse_pos(v12, v11);
     g_ui_input_locked = 0;
     ENT_anim_clear(g_ui_input_cursor_entity);
@@ -60164,7 +58735,6 @@ void __cdecl UI_main_menu_game_difficulty_or_leave_lobby_as_client(Task *task)
   FADE_out(task);
   TSK_schedule_self_destruct(task);
 }
-// 4423A4: variable 'v8' is possibly undefined
 
 //----- (00442580) --------------------------------------------------------
 void __cdecl UI_main_menu_multi_ipx_cancel(Task *task)
@@ -60250,19 +58820,13 @@ void __cdecl UI_main_menu_multi_ipx_host(Task *task)
     do
       v3 = UI_button_tick(task, 1840, g_cdrom_is_available, 0);
     while ( !v3 );
-    g_coroutine_eax = v3;
-    v4 = g_coroutine_current;
-    if ( g_coroutine_list_head != v4 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = &v13;
-    PAL_save_system_colors();
-    ShowCursor(1);
-    v5 = NETZ_switch_host_or_join(1);
-    ShowCursor(0);
-    PAL_restore_system_colors();
-    g_coroutine_eax = v6;
-    v7 = g_coroutine_current;
-    if ( g_coroutine_list_head != v7 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      PAL_save_system_colors();
+      ShowCursor(1);
+      v5 = NETZ_switch_host_or_join(1);
+      ShowCursor(0);
+      PAL_restore_system_colors();
+    });
     if ( v5 == NetzError_Ok )
       break;
     v8 = g_netz_protocol;
@@ -60301,7 +58865,6 @@ void __cdecl UI_main_menu_multi_ipx_host(Task *task)
   FADE_out(task);
   TSK_schedule_self_destruct(task);
 }
-// 442783: variable 'v6' is possibly undefined
 
 //----- (004428C0) --------------------------------------------------------
 void __cdecl UI_main_menu_multi_ipx_join(Task *task)
@@ -60339,43 +58902,27 @@ void __cdecl UI_main_menu_multi_ipx_join(Task *task)
     do
       v3 = UI_button_tick(task, 2080, 1, 0);
     while ( !v3 );
-    g_coroutine_eax = v3;
-    v4 = g_coroutine_current;
-    if ( g_coroutine_list_head != v4 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v18;
-    v5 = NETZ_switch_host_or_join(0);
-    g_netz_should_enum_sessions = 1;
-    g_coroutine_eax = v5;
-    v6 = g_coroutine_current;
-    if ( g_coroutine_list_head != v6 )
-      --g_coroutine_nesting_depth;
-    v7 = g_coroutine_current;
-    if ( g_coroutine_list_head != v7 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v18;
-    PAL_save_system_colors();
-    ShowCursor(1);
-    NETZ_poll(0, 0);
-    player = NETZ_create_player(0);
-    ShowCursor(0);
-    PAL_restore_system_colors();
-    g_coroutine_eax = v9;
-    v10 = g_coroutine_current;
-    if ( g_coroutine_list_head != v10 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      v5 = NETZ_switch_host_or_join(0);
+    });
+    COROUTINE_RUN_ON_MAIN_STACK({
+      PAL_save_system_colors();
+      ShowCursor(1);
+      NETZ_poll(0, 0);
+      player = NETZ_create_player(0);
+      ShowCursor(0);
+      PAL_restore_system_colors();
+    });
     if ( player == NetzError_Ok )
     {
       v11 = NetzJoinState_Connecting;
       g_netz_join_state = NetzJoinState_Connecting;
       while ( (g_netz_remote_host_slot == -1 || v11 == NetzJoinState_Connecting) && (int)player < 1800 )
       {
-        g_coroutine_eax = TSK_yield(task, TaskWait_Interval, 1);
-        v12 = g_coroutine_current;
-        if ( g_coroutine_list_head != v12 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = v18;
-        g_coroutine_eax = NETZ_poll(0, 0);
-        v13 = g_coroutine_current;
-        if ( g_coroutine_list_head != v13 )
-          --g_coroutine_nesting_depth;
+        TSK_yield(task, TaskWait_Interval, 1);
+        COROUTINE_RUN_ON_MAIN_STACK({
+          NETZ_poll(0, 0);
+        });
         v11 = g_netz_join_state;
         ++player;
       }
@@ -60417,7 +58964,11 @@ void __cdecl UI_main_menu_multi_ipx_join(Task *task)
   FADE_out(task);
   TSK_schedule_self_destruct(task);
 }
-// 4429D8: variable 'v9' is possibly undefined
+
+static int mission_anim_frame(const int *mute_table, const int *surv_table, int mission_idx)
+{
+  return g_play_mission_faction ? mute_table[mission_idx] : surv_table[mission_idx];
+}
 
 //----- (00442BB0) --------------------------------------------------------
 __attribute__((no_sanitize("alignment")))
@@ -60483,7 +59034,8 @@ void __cdecl GAME_new_missions_selection(Task *task)
         v7 = g_widgets_head;
         if ( BYTE2(taska->sleep) > 9u )
           break;
-        v6 = g_play_mission_faction ? dword_46E4C0[BYTE2(taska->sleep)] : dword_46E4F0[BYTE2(taska->sleep)];
+        // read AFTER the >9 guard: index now in range for these 11/12-entry tables
+        v6 = mission_anim_frame(dword_46E4C0, dword_46E4F0, BYTE2(taska->sleep));
         if ( g_widgets_head != (MenuWidget *)&g_widgets_head )
         {
           while ( v7->entity != v5 )
@@ -60497,12 +59049,9 @@ void __cdecl GAME_new_missions_selection(Task *task)
 LABEL_16:
         if ( BYTE2(taska->sleep) == g_play_mission_level_idx )
         {
-          g_ui_input_cursor_entity->is_collidable = 1;
-          x = v5->x;
-          v5->is_collidable = 1;
-          g_ui_input_cursor_entity->x = x;
-          g_ui_input_cursor_entity->is_collidable = 1;
-          g_ui_input_cursor_entity->y = v5->y;
+          x = ENT_X(v5);
+          ENT_X(g_ui_input_cursor_entity) = x;
+          ENT_Y(g_ui_input_cursor_entity) = ENT_Y(v5);
         }
         ENT_anim_set(v5, v6);
         v9 = 1;
@@ -60574,16 +59123,11 @@ LABEL_40:
   {
     while ( 1 )
     {
+      v18 = mission_anim_frame(dword_46E440, dword_46E480, BYTE2(taska->sleep));
       if ( g_play_mission_faction )
-      {
         v17 = g_current_mute_level;
-        v18 = dword_46E440[BYTE2(taska->sleep)];
-      }
       else
-      {
-        v18 = dword_46E480[BYTE2(taska->sleep)];
         v17 = g_current_surv_level;
-      }
       if ( v15 == -1 )
       {
         if ( v17 <= 0xEu )
@@ -60650,12 +59194,9 @@ LABEL_44:
 LABEL_63:
     if ( BYTE2(taska->sleep) == v15 )
     {
-      g_ui_input_cursor_entity->is_collidable = 1;
-      v21 = v16->x;
-      v16->is_collidable = 1;
-      g_ui_input_cursor_entity->x = v21;
-      g_ui_input_cursor_entity->is_collidable = 1;
-      g_ui_input_cursor_entity->y = v16->y;
+      v21 = ENT_X(v16);
+      ENT_X(g_ui_input_cursor_entity) = v21;
+      ENT_Y(g_ui_input_cursor_entity) = ENT_Y(v16);
     }
     ENT_anim_set(v16, v18);
     v22 = 1;
@@ -61452,10 +59993,21 @@ void __fastcall UI_switch_screen(Task *task, MenuId menu)
 }
 
 //----- (00443D40) --------------------------------------------------------
-void __cdecl TKS_terminate_with_entity(Task *task)
-{
-  ENT_remove(task->entity);
-  TSK_schedule_self_destruct(task);
+void TSK_terminate_with_entity(Task *tsk) {
+  if (tsk->entity)
+    ENT_remove(tsk->entity);
+  TSK_schedule_self_destruct(tsk);
+}
+
+void TSK_terminate_and_entity(Task *tsk, Entity *e) {
+  if (e)
+    ENT_remove(e);
+  TSK_schedule_self_destruct(tsk);
+}
+
+void TSK_terminate_with_entity_and_ctx(Task *tsk) {
+  ENT_remove(tsk->ctx);
+  TSK_terminate_with_entity(tsk);
 }
 
 //----- (00443D60) --------------------------------------------------------
@@ -61685,6 +60237,7 @@ void __fastcall UI_select_menu(MenuId id)
       g_menu_widgets_initialized = 1;
     }
     v4 = ENT_create_ex(MobdId_MainMenuButtons, nullptr, UI_menu_controller, TaskKind_Coroutine, nullptr);
+    CORO_ASSERT_UNBORROWED();  // must not switch stacks while a COROUTINE_STACK_BORROW is active
     TSK_execute_async((Coroutine *)v4->task->entry_point);
   }
 }
@@ -61853,9 +60406,7 @@ void __fastcall UNIT_tanker_init(Unit *unit)
     unit->unit_id = 0;
     v18->x_speed = 0;
     unit->entity->y_speed = 0;
-    ENT_remove(unit->entity);
-    UNIT_remove(unit);
-    TSK_schedule_self_destruct(unit->task);
+    UNIT_remove_task_and_entity(unit);
   }
 }
 
@@ -62590,12 +61141,13 @@ BOOL __fastcall TSK_init(int default_coroutine_stack_size)
 
   v1 = default_coroutine_stack_size;
   if ( !default_coroutine_stack_size )
-    // 4096 (the original MSVC-binary sizing) isn't enough headroom under this
-    // unoptimized/UBSan-instrumented build: the canary in TSK_coroutine_create
-    // has been observed clobbered right at context[0], meaning some coroutine's
-    // call chain used the entire buffer down to the last 4 bytes before the
-    // deepest push - one frame away from overflowing into the adjacent heap chunk
-    v1 = 1024 * 1024;
+    // Heavy external calls (DirectDraw/COM/GDI) now run on the dedicated
+    // g_coroutine_borrow_stack via COROUTINE_STACK_BORROW, so each coroutine
+    // only needs room for its own logic depth. Measured high-water (see
+    // COROUTINE_STACK_PROFILE): CURSOR_loop_and_game_events peaks ~11KB, every
+    // other task < 1.5KB; 32KB gives ~3x margin for combat spikes. Overflow ->
+    // heap corruption (canary detects only after the fact), so keep margin.
+    v1 = 32 * 1024;
   result = TSK_message_pool_init();
   if ( result )
   {
@@ -62612,6 +61164,14 @@ BOOL __fastcall TSK_init(int default_coroutine_stack_size)
       result = TSK_coroutine_init();
       if ( result )
       {
+        if ( g_coroutine_borrow_stack )
+          free(g_coroutine_borrow_stack);
+        g_coroutine_borrow_stack = malloc(TSK_BORROW_STACK_SIZE);
+        if ( !g_coroutine_borrow_stack )
+          return 0;
+        g_coroutine_borrow_stack[0] = TSK_BORROW_STACK_CANARY;
+        g_coroutine_borrow_stack_top =
+          (void *)(((uintptr_t)g_coroutine_borrow_stack + TSK_BORROW_STACK_SIZE) & ~(uintptr_t)15);
         g_coroutine_default_stack_size = v1;
         g_coroutine_current = g_coroutine_list_head;
         g_netz_sync_pause = 0;
@@ -62652,6 +61212,7 @@ Task *__fastcall TSK_async_impl(TaskChannel chan, TaskFn fn, size_t stack_size, 
     v7->prev = v3;
     v3->prev = (Task *)&g_task_active_head;
     g_task_active_head = v3;
+    CORO_ASSERT_UNBORROWED();  // must not switch stacks while a COROUTINE_STACK_BORROW is active
     TSK_execute_async((Coroutine *)v3->entry_point);
     return v3;
   }
@@ -62755,6 +61316,7 @@ TaskEvents __cdecl TSK_yield(Task *task, TaskWaitFlags wait_flags, int sleep_int
   task->wait_flags = wait_flags;
   if ( kind == TaskKind_Coroutine )
   {
+    CORO_ASSERT_UNBORROWED();  // must not switch stacks while a COROUTINE_STACK_BORROW is active
     TSK_execute_async(g_coroutine_list_head);   // yield to scheduler
     task->wait_flags = 0;
     task->wait_filter = 0;
@@ -62801,6 +61363,19 @@ void __fastcall TSK_dealloc(Task *task, void *mem)
   free(v2);
 }
 
+void __fastcall TURRET_cleanup_kill(Task *parent_task, Turret *turret)
+{
+  ENT_remove(turret->entity);
+  TSK_kill(turret->task);
+  TSK_dealloc(parent_task, turret);
+}
+
+void __fastcall TURRET_cleanup_self_destruct(Turret *turret)
+{
+  TSK_terminate_and_entity(turret->task, turret->entity);
+  TSK_dealloc(turret->parent->task, turret);
+}
+
 //----- (00445470) --------------------------------------------------------
 void __fastcall TSK_schedule_self_destruct(Task *task)
 {
@@ -62822,8 +61397,10 @@ void __fastcall TSK_schedule_self_destruct(Task *task)
   // would double-free/UAF whatever unrelated task now occupies that slot.
   if ( task == g_current_menu_controller )
     g_current_menu_controller = nullptr;
-  if ( kind == TaskKind_Coroutine )
+  if ( kind == TaskKind_Coroutine ) {
+    CORO_ASSERT_UNBORROWED();  // must not switch stacks while a COROUTINE_STACK_BORROW is active
     TSK_execute_async(g_coroutine_list_head);
+  }
 }
 
 //----- (004454A0) --------------------------------------------------------
@@ -62904,6 +61481,7 @@ void TSK_run()
           }
           else
           {
+            CORO_ASSERT_UNBORROWED();  // must not switch stacks while a COROUTINE_STACK_BORROW is active
             TSK_execute_async((Coroutine *)i->entry_point);
           }
         }
@@ -62973,6 +61551,7 @@ void TSK_coroutine_starter()
   task = g_task_creation_arg;
   v1 = g_task_creation_main;
   v0 = g_coroutine_current;
+  CORO_ASSERT_UNBORROWED();  // must not switch stacks while a COROUTINE_STACK_BORROW is active
   TSK_execute_async(v0->yield_to);
   v1(task);
   TSK_schedule_self_destruct(task);
@@ -63513,9 +62092,8 @@ void __fastcall UI_sidebar_mode_infantry_open(SidebarButton *button)
           prev->icon_entity = v4;
           v4->rn->transform = (RenderTransform)REND_transform_ui;
           y = v4->y;
-          v4->is_collidable = 1;
-          v4->y = y - 0x400;
-          v4->z = 3;
+          ENT_Y(v4) = y - 0x400;
+          ENT_Z(v4) = 3;
           ENT_anim_set(v4, g_factory_stripes[prev->factory_header_color_idx].sidebar_icon_mobd_frame);
         }
       }
@@ -63616,9 +62194,8 @@ void __fastcall UI_sidebar_mode_vehicles_open(SidebarButton *button)
           next->icon_entity = v4;
           v4->rn->transform = (RenderTransform)REND_transform_ui;
           y = v4->y;
-          v4->is_collidable = 1;
-          v4->y = y - 1024;
-          v4->z = 3;
+          ENT_Y(v4) = y - 1024;
+          ENT_Z(v4) = 3;
           ENT_anim_set(v4, g_factory_stripes[next->factory_header_color_idx].sidebar_icon_mobd_frame);
         }
       }
@@ -64434,10 +63011,8 @@ LABEL_16:
   {
     v23->rn->transform = (RenderTransform)REND_transform_ui;
     ENT_anim_set(g_sidebar_unused_slots, 72);
-    g_sidebar_unused_slots->is_collidable = 1;
-    g_sidebar_unused_slots->x = (g_rend_screen_width - 32) << 8;
-    g_sidebar_unused_slots->is_collidable = 1;
-    g_sidebar_unused_slots->y = 0x10000;
+    ENT_X(g_sidebar_unused_slots) = (g_rend_screen_width - 32) << 8;
+    ENT_Y(g_sidebar_unused_slots) = 0x10000;
     g_sidebar_unused_slots->z = 0;
   }
   return 1;
@@ -64451,12 +63026,11 @@ void __fastcall UI_sidebar_mode_cash_open(SidebarButton *button)
 
   v2 = UI_str_calc_height_wrapped("        0", 12);
   v3 = UI_str_calc_width("        0", 12);
-  button->entity->is_collidable = 1;
   g_sidebar_cash_string = UI_str_create(
                             nullptr,
                             (FontMobd *)g_mobd[MobdId_Font_Main].layers[0],
-                            (button->entity->x >> 8) - (8 * v3 + 24),
-                            button->entity->y >> 8,
+                            (ENT_X(button->entity) >> 8) - (8 * v3 + 24),
+                            ENT_Y(button->entity) >> 8,
                             v3 + 2,
                             v2 + 2,
                             0x40000000,
@@ -64850,29 +63424,23 @@ void __fastcall UNIT_mode_tower_on_death(Unit *unit)
 void __fastcall UNIT_mode_tower_finalize(Unit *unit)
 {
   Turret *turret; // eax
-  Task *task; // ecx
 
   turret = unit->turret;
   if ( turret )
   {
     turret->entity->ctx1 = nullptr;
-    ENT_remove(unit->turret->entity);
-    TSK_schedule_self_destruct(unit->turret->task);
+    TSK_terminate_and_entity(unit->turret->task, unit->turret->entity);
     unit->turret = nullptr;
   }
   if ( unit->player_num == g_player_num && g_num_towers > 0 )
     --g_num_towers;
   BOXD_building_release_area(unit);
-  ENT_remove(unit->entity);
-  task = unit->task;
-  unit->entity = nullptr;
-  TSK_schedule_self_destruct(task);
-  UNIT_remove(unit);
+  UNIT_remove_task_and_entity(unit);
 }
 
 //----- (00447600) --------------------------------------------------------
 // BUG - void* payload but it's unit here to make the decompilation cleaner
-void __fastcall MSG_tower(Task *receiver, Task *sender, TaskMessageType message, Unit *payload)
+void __fastcall MSG_tower(Task *receiver, Task *sender, TaskMessageType message, void *payload)
 {
   (void)sender;
 
@@ -64894,13 +63462,13 @@ void __fastcall MSG_tower(Task *receiver, Task *sender, TaskMessageType message,
           if ( turret )
           {
             unit->order_target = payload;
-            unit->order_target_id = payload->unit_id;
+            unit->order_target_id = ((Unit *)payload)->unit_id;
             TSK_send_message(unit->task, TaskMessage_AttackOrder_or_QuitGame, nullptr, turret->task);
           }
         }
         break;
       case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, (Entity *)payload, UNIT_mode_tower_on_death);
+        UNIT_apply_damage_ex(unit, payload, UNIT_mode_tower_on_death);
         UNIT_status_bar_update_frame(unit);
         break;
       case TaskMessage_UnitSelected_or_UiLeftClick:
@@ -64913,7 +63481,7 @@ void __fastcall MSG_tower(Task *receiver, Task *sender, TaskMessageType message,
         UNIT_show_hint(unit);
         break;
       case TaskMessage_Destroy:
-        UNIT_destroy(unit, UNIT_mode_tower_on_death);
+        UNIT_on_destroy(unit, UNIT_mode_tower_on_death);
         break;
       case TaskMessage_AttackOrder_or_QuitGame:
         UINT_tower_on_attack_order(unit, (AttackOrderPayload *)payload);
@@ -65414,11 +63982,11 @@ void __fastcall TURRET_mode_attacking(Turret *turret)
     task->ctx = turret->target;
     v5->projectile_ctx.attacker = turret->parent;
     v5->projectile_ctx.attacker_unit_id = turret->parent->unit_id;
-    v5->infantry_damage = LOWORD(projectile_type->damage_to_infantry)
+    v5->infantry_damage = projectile_type->damage_to_infantry
                         + ((projectile_type->damage_to_infantry * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-    v5->vehicle_damage = LOWORD(projectile_type->damage_to_vehicles)
+    v5->vehicle_damage = projectile_type->damage_to_vehicles
                        + ((projectile_type->damage_to_vehicles * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-    v5->building_damage = LOWORD(projectile_type->damage_to_buildings)
+    v5->building_damage = projectile_type->damage_to_buildings
                         + ((projectile_type->damage_to_buildings * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
     v5->parent = turret->entity->parent;
     TSK_send_message(turret->parent->task, TaskMessage_Attacked, turret->parent, turret->target->task);
@@ -66019,11 +64587,11 @@ void __fastcall TURRET_mode_vehicle_fire(Turret *turret)
       task->ctx = turret->target;
       v7->projectile_ctx.attacker = turret->parent;
       v7->projectile_ctx.attacker_unit_id = turret->parent->unit_id;
-      v7->infantry_damage = LOWORD(projectile_type->damage_to_infantry)
+      v7->infantry_damage = projectile_type->damage_to_infantry
                           + ((projectile_type->damage_to_infantry * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-      v7->vehicle_damage = LOWORD(projectile_type->damage_to_vehicles)
+      v7->vehicle_damage = projectile_type->damage_to_vehicles
                          + ((projectile_type->damage_to_vehicles * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-      v7->building_damage = LOWORD(projectile_type->damage_to_buildings)
+      v7->building_damage = projectile_type->damage_to_buildings
                           + ((projectile_type->damage_to_buildings * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
       v7->parent = turret->entity->parent;
       TSK_send_message(turret->parent->task, TaskMessage_Attacked, turret->parent, turret->target->task);
@@ -66067,9 +64635,7 @@ void __fastcall TURRET_mode_vehicle_fire(Turret *turret)
 //----- (00448E90) --------------------------------------------------------
 void __fastcall TURRET_mode_vehicle_finalize(Turret *turret)
 {
-  ENT_remove(turret->entity);
-  TSK_schedule_self_destruct(turret->task);
-  TSK_dealloc(turret->parent->task, turret);
+  TURRET_cleanup_self_destruct(turret);
 }
 
 //----- (00448EC0) --------------------------------------------------------
@@ -66085,11 +64651,8 @@ void __fastcall MSG_turret_vehicle(
   Turret *turret; // esi
 
   turret = (Turret *)sender->ctx;
-  if ( message == TaskMessage_MissionFailed )
-  {
-    ENT_remove(turret->entity);
-    TSK_schedule_self_destruct(turret->task);
-    TSK_dealloc(turret->parent->task, turret);
+  if(message == TaskMessage_MissionFailed) {
+    TURRET_cleanup_self_destruct(turret);
   }
 }
 
@@ -66669,49 +65232,9 @@ void __cdecl NETZ_sync_loop(Task *task)
     {
       while ( 1 )
       {
-        g_coroutine_eax = v5;                   // BUG
-                                                //
-                                                // Here and in every similar case
-                                                //
-                                                // Coroutines live on a very tight stack budget; When calling libraries, COM objects (DirectPlay) and other heavy-lifting, the following macro pair temprarily borrows main thread's stack and replaces courutine's own stack with it
-                                                //
-                                                // #define COROUTINE_STACK_BORROW() __asm { \
-                                                //     mov g_coroutine_eax, eax \
-                                                //     mov eax, g_coroutine_list_head \
-                                                //     cmp eax, g_coroutine_current \
-                                                //     jz _skip_enter \
-                                                //     inc g_coroutine_nesting_depth \
-                                                //     cmp g_coroutine_nesting_depth, 1 \
-                                                //     jnz _skip_enter \
-                                                //     mov eax, [eax+8] \
-                                                //     mov g_coroutine_esp, esp \
-                                                //     mov esp, eax \
-                                                // _skip_enter: \
-                                                //     mov eax, g_coroutine_eax \
-                                                // }
-                                                //
-                                                // #define COROUTINE_STACK_RETURN() __asm { \
-                                                //     mov g_coroutine_eax, eax \
-                                                //     mov eax, g_coroutine_list_head \
-                                                //     cmp eax, g_coroutine_current \
-                                                //     jz _skip_leave \
-                                                //     dec g_coroutine_nesting_depth \
-                                                //     jnz _skip_leave \
-                                                //     mov esp, g_coroutine_esp \
-                                                // _skip_leave: \
-                                                // }
-                                                //
-                                                //
-                                                //
-                                                // -----
-                                                // the pattern is so consistent, it was probably a wrapper e.g #define RUN_ON_MAIN_STACK(expr) ...
-        v6 = g_coroutine_current;
-        if ( g_coroutine_list_head != v6 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = v33;
-        g_coroutine_eax = NETZ_poll(0, 1);
-        v7 = g_coroutine_current;
-        if ( g_coroutine_list_head != v7 )
-          --g_coroutine_nesting_depth;
+        COROUTINE_RUN_ON_MAIN_STACK({
+          NETZ_poll(0, 1);
+        });
         if ( timeGetTime() - v4 > 30000 )
         {
           player_ = &g_netz_players[1];
@@ -66789,15 +65312,9 @@ LABEL_18:
         {
           if ( _player->connection_status == NetzConnection_Joined && v16 != v10 )  // INLINED III HHH-esque (sister function)
           {
-            g_coroutine_eax = (UINT)v13;
-            v18 = g_coroutine_current;
-            if ( g_coroutine_list_head != v18 && ++g_coroutine_nesting_depth == 1 )
-              g_coroutine_esp = v33;
-            g_coroutine_eax = NETZ_send(_player->slot, NETZ_PKT_EVENT_BROADCAST, &a3, v12 - &a3, 0);
-            v19 = g_coroutine_current;
-            if ( g_coroutine_list_head != v19 )
-              --g_coroutine_nesting_depth;
-            v13 = (NetzGameEvent *)g_coroutine_eax;
+            COROUTINE_RUN_ON_MAIN_STACK({
+              NETZ_send(_player->slot, NETZ_PKT_EVENT_BROADCAST, &a3, v12 - &a3, 0);
+            });
             v10 = g_netz_local_player_slot;
           }
           ++_player;
@@ -66847,14 +65364,9 @@ LABEL_18:
   }
   else
   {
-    g_coroutine_eax = v1;
-    v25 = g_coroutine_current;
-    if ( g_coroutine_list_head != v25 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v33;
-    g_coroutine_eax = NETZ_send(g_netz_remote_host_slot, NETZ_PKT_CLIENT_LOCKSTEP_FINISHED, nullptr, 0, 1);
-    v26 = g_coroutine_current;
-    if ( g_coroutine_list_head != v26 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      NETZ_send(g_netz_remote_host_slot, NETZ_PKT_CLIENT_LOCKSTEP_FINISHED, nullptr, 0, 1);
+    });
     v27 = g_netz_continue_loop;
     if ( g_netz_continue_loop )
     {
@@ -66898,19 +65410,13 @@ LABEL_56:
             g_currently_processed_event.type = GameEvent_None;
           }
         }
-        g_coroutine_eax = (UINT)v28;
-        v29 = g_coroutine_current;
-        if ( g_coroutine_list_head != v29 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = v33;
-        if ( g_currently_processed_event.type ) // BUG cast to bool
-          v30 = NETZ_send(g_netz_remote_host_slot, NETZ_PKT_CLIENT_EVENT, &g_currently_processed_event, 13u, 0);
-        else
-          v30 = NETZ_send(g_netz_remote_host_slot, NETZ_PKT_CLIENT_EVENT, &g_currently_processed_event, 1u, 0);
-        v31 = v30;
-        g_coroutine_eax = v30;
-        v32 = g_coroutine_current;
-        if ( g_coroutine_list_head != v32 )
-          --g_coroutine_nesting_depth;
+        COROUTINE_RUN_ON_MAIN_STACK({
+          if ( g_currently_processed_event.type ) // BUG cast to bool
+            v30 = NETZ_send(g_netz_remote_host_slot, NETZ_PKT_CLIENT_EVENT, &g_currently_processed_event, 13u, 0);
+          else
+            v30 = NETZ_send(g_netz_remote_host_slot, NETZ_PKT_CLIENT_EVENT, &g_currently_processed_event, 1u, 0);
+          v31 = v30;
+        });
         NETZ_last_send_result(v30);
         if ( v31 )
           break;
@@ -66963,14 +65469,9 @@ BOOL __fastcall NETZ_wait_for_packets(int *pending_count, int timeout_ms, const 
     v5 = timeGetTime() - Time;
     if ( v5 >= v17 )
       break;
-    g_coroutine_eax = v5;
-    v6 = g_coroutine_current;
-    if ( g_coroutine_list_head != v6 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v16;
-    g_coroutine_eax = NETZ_poll(0, 1);
-    v7 = g_coroutine_current;
-    if ( g_coroutine_list_head != v7 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      NETZ_poll(0, 1);
+    });
     if ( *pending_count == -1 || !g_netz_continue_loop )
       break;
     if ( timeGetTime() - time_ > 500 )
@@ -66983,15 +65484,9 @@ BOOL __fastcall NETZ_wait_for_packets(int *pending_count, int timeout_ms, const 
           if ( (v8->connection_status == NetzConnection_Joined || v8->connection_status == NetzConnection_Synced)
             && !v8->event_received_this_tick )
           {
-            g_coroutine_eax = 0;
-            v9 = g_coroutine_current;
-            if ( g_coroutine_list_head != v9 && ++g_coroutine_nesting_depth == 1 )
-              g_coroutine_esp = v16;
-            NETZ_resend_to_player(v8->slot, 0);
-            g_coroutine_eax = v10;
-            v11 = g_coroutine_current;
-            if ( g_coroutine_list_head != v11 )
-              --g_coroutine_nesting_depth;
+            COROUTINE_RUN_ON_MAIN_STACK({
+              NETZ_resend_to_player(v8->slot, 0);
+            });
           }
           ++v8;
         }
@@ -66999,15 +65494,9 @@ BOOL __fastcall NETZ_wait_for_packets(int *pending_count, int timeout_ms, const 
       }
       else
       {
-        g_coroutine_eax = 0;
-        v12 = g_coroutine_current;
-        if ( g_coroutine_list_head != v12 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = v16;
-        NETZ_resend_to_player(g_netz_players[g_netz_remote_host_slot + 1].slot, 0);
-        g_coroutine_eax = v13;
-        v14 = g_coroutine_current;
-        if ( g_coroutine_list_head != v14 )
-          --g_coroutine_nesting_depth;
+        COROUTINE_RUN_ON_MAIN_STACK({
+          NETZ_resend_to_player(g_netz_players[g_netz_remote_host_slot + 1].slot, 0);
+        });
       }
       time_ = timeGetTime();
     }
@@ -67037,16 +65526,10 @@ void NETZ_signal_game_over()
     {
       if ( player->connection_status == NetzConnection_Joined )  // INLINED III HHH-esque (sister function)
       {
-        g_coroutine_eax = v0;
-        v2 = g_coroutine_current;
-        if ( g_coroutine_list_head != v2 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = v7;
-        NETZ_send(player->slot, NETZ_PKT_GAME_OVER_BROADCAST_2, nullptr, 0, 1);
-        g_coroutine_eax = NETZ_poll(0, 0);
-        v3 = g_coroutine_current;
-        if ( g_coroutine_list_head != v3 )
-          --g_coroutine_nesting_depth;
-        v0 = g_coroutine_eax;
+        COROUTINE_RUN_ON_MAIN_STACK({
+          NETZ_send(player->slot, NETZ_PKT_GAME_OVER_BROADCAST_2, nullptr, 0, 1);
+          NETZ_poll(0, 0);
+        });
       }
       ++player;
     }
@@ -67060,20 +65543,15 @@ void NETZ_signal_game_over()
     LOBYTE(v4) = g_netz_players[g_netz_local_player_slot + 1].connection_status;
     if ( (_BYTE)v4 )
     {
-      g_coroutine_eax = v4;
-      v5 = g_coroutine_current;
-      if ( g_coroutine_list_head != v5 && ++g_coroutine_nesting_depth == 1 )
-        g_coroutine_esp = v7;
-      NETZ_send(
-        g_netz_remote_host_slot,
-        NETZ_PKT_GAME_OVER_BROADCAST,
-        &g_netz_players[g_netz_local_player_slot + 1],
-        0x1Cu,
-        1);
-      g_coroutine_eax = NETZ_poll(0, 0);
-      v6 = g_coroutine_current;
-      if ( g_coroutine_list_head != v6 )
-        --g_coroutine_nesting_depth;
+      COROUTINE_RUN_ON_MAIN_STACK({
+        NETZ_send(
+          g_netz_remote_host_slot,
+          NETZ_PKT_GAME_OVER_BROADCAST,
+          &g_netz_players[g_netz_local_player_slot + 1],
+          0x1Cu,
+          1);
+        NETZ_poll(0, 0);
+      });
     }
   }
   g_netz_game_over_signal = 1;
@@ -67107,15 +65585,9 @@ void __fastcall NETZ_broadcast(NetzPacketType pkt, const void *data, const size_
       LOBYTE(v3) = player->connection_status; // INLINED III HHH-esque (sister function)
       if ( (_BYTE)v3 && v4 != g_netz_local_player_slot )
       {
-        g_coroutine_eax = v3;
-        v6 = g_coroutine_current;
-        if ( g_coroutine_list_head != v6 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = &v8;
-        g_coroutine_eax = NETZ_send(player->slot, (NetzPacketType)a2, data_, data_size, 1);
-        v7 = g_coroutine_current;
-        if ( g_coroutine_list_head != v7 )
-          --g_coroutine_nesting_depth;
-        v3 = g_coroutine_eax;
+        COROUTINE_RUN_ON_MAIN_STACK({
+          NETZ_send(player->slot, (NetzPacketType)a2, data_, data_size, 1);
+        });
       }
       ++player;
       ++v4;
@@ -67125,27 +65597,12 @@ void __fastcall NETZ_broadcast(NetzPacketType pkt, const void *data, const size_
 }
 
 //----- (0044A220) --------------------------------------------------------
-void *__fastcall NETZ_send_to_host(NetzPacketType pkt, const void *data, const size_t size)
-{
-  void *result; // eax
-  Coroutine *v4; // et1
-  Coroutine *v5; // et1
-  int savedregs; // [esp+0h] [ebp+0h] BYREF
+void NETZ_send_to_host(NetzPacketType pkt, const void *data, const size_t size) {
+  if (g_netz_is_game_host) return;
 
-  result = (void *)g_netz_is_game_host;
-  if ( !g_netz_is_game_host )
-  {
-    g_coroutine_eax = 0;
-    v4 = g_coroutine_current;
-    if ( g_coroutine_list_head != v4 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = &savedregs;
-    g_coroutine_eax = NETZ_send(g_netz_remote_host_slot, pkt, data, size, 1);
-    v5 = g_coroutine_current;
-    if ( g_coroutine_list_head != v5 )
-      --g_coroutine_nesting_depth;
-    return (void *)g_coroutine_eax;
-  }
-  return result;
+  COROUTINE_RUN_ON_MAIN_STACK({
+    NETZ_send(g_netz_remote_host_slot, pkt, data, size, 1);
+  });
 }
 
 //----- (0044A2A0) --------------------------------------------------------
@@ -67196,15 +65653,9 @@ void __fastcall NETZ_broadcast_mandatory_response(NetzPacketType pkt, void *data
       LOBYTE(v6) = player_->connection_status; // INLINED III HHH-esque (sister function)
       if ( (_BYTE)v6 && v7 != g_netz_local_player_slot )
       {
-        g_coroutine_eax = v6;
-        v9 = g_coroutine_current;
-        if ( g_coroutine_list_head != v9 && ++g_coroutine_nesting_depth == 1 )
-          g_coroutine_esp = v20;
-        g_coroutine_eax = NETZ_send(player_->slot, pkt_, data_, data_size, 1);
-        v10 = g_coroutine_current;
-        if ( g_coroutine_list_head != v10 )
-          --g_coroutine_nesting_depth;
-        v6 = g_coroutine_eax;
+        COROUTINE_RUN_ON_MAIN_STACK({
+          NETZ_send(player_->slot, pkt_, data_, data_size, 1);
+        });
       }
       ++player_;
       ++v7;
@@ -67217,14 +65668,9 @@ void __fastcall NETZ_broadcast_mandatory_response(NetzPacketType pkt, void *data
     v11 = v3() - Time;
     if ( v11 >= 40000 )
       break;
-    g_coroutine_eax = v11;
-    v12 = g_coroutine_current;
-    if ( g_coroutine_list_head != v12 && ++g_coroutine_nesting_depth == 1 )
-      g_coroutine_esp = v20;
-    g_coroutine_eax = NETZ_poll(0, 0);
-    v13 = g_coroutine_current;
-    if ( g_coroutine_list_head != v13 )
-      --g_coroutine_nesting_depth;
+    COROUTINE_RUN_ON_MAIN_STACK({
+      NETZ_poll(0, 0);
+    });
     if ( v3() - t > 500 )
     {
       g_netz_num_pending_acks = g_num_multi_players - 1;
@@ -67242,15 +65688,9 @@ void __fastcall NETZ_broadcast_mandatory_response(NetzPacketType pkt, void *data
           LOBYTE(v15) = _player_->connection_status; // INLINED III HHH-esque (sister function)
           if ( (_BYTE)v15 && v16 != g_netz_local_player_slot )
           {
-            g_coroutine_eax = v15;
-            v18 = g_coroutine_current;
-            if ( g_coroutine_list_head != v18 && ++g_coroutine_nesting_depth == 1 )
-              g_coroutine_esp = v20;
-            g_coroutine_eax = NETZ_send(_player_->slot, pkt_, data_, data_size, 1);
-            v19 = g_coroutine_current;
-            if ( g_coroutine_list_head != v19 )
-              --g_coroutine_nesting_depth;
-            v15 = g_coroutine_eax;
+            COROUTINE_RUN_ON_MAIN_STACK({
+              NETZ_send(_player_->slot, pkt_, data_, data_size, 1);
+            });
           }
           ++_player_;
           ++v16;
@@ -67284,9 +65724,8 @@ void __cdecl MINI_mouse_loop(Task *task)
       {
         p_cmd = &g_mapd_layers_rns[0]->rn->cmd;
         INPUT_get_mouse_state(&state);
-        g_minimap_entity->is_collidable = 1;
-        v4 = 16 * (state.cursor_x - g_minimap_entity->x) - (g_rend_screen_width << 7);
-        v5 = 16 * (state.cursor_y - g_minimap_entity->y) - (g_rend_screen_height << 7);
+        v4 = 16 * (state.cursor_x - ENT_X(g_minimap_entity)) - (g_rend_screen_width << 7);
+        v5 = 16 * (state.cursor_y - ENT_Y(g_minimap_entity)) - (g_rend_screen_height << 7);
         if ( v4 >= 0 )
         {
           if ( v4 > (32 - g_rend_screen_width + REND_get_width(p_cmd)) << 8 )
@@ -67333,12 +65772,9 @@ void MINI_close()
 }
 
 //----- (0044A6B0) --------------------------------------------------------
-void __fastcall MINI_pos_set(int right_x, int top_y)
-{
-  g_minimap_entity->is_collidable = 1;
-  g_minimap_entity->x = (right_x - g_minimap_width - 4) << 8;
-  g_minimap_entity->is_collidable = 1;
-  g_minimap_entity->y = top_y << 8;
+void __fastcall MINI_pos_set(int right_x, int top_y) {
+  ENT_X(g_minimap_entity) = (right_x - g_minimap_width - 4) << 8;
+  ENT_Y(g_minimap_entity) = top_y << 8;
 }
 
 //----- (0044A700) --------------------------------------------------------
@@ -67798,10 +66234,9 @@ void MINI_draw()
         {
           if ( j->player_num == g_player_num )
           {
-            j->entity->is_collidable = 1;
             entity = j->entity;
-            v9 = 2 * (entity->x >> 13);
-            v10 = 2 * (entity->y >> 13);
+            v9 = 2 * (ENT_X(entity) >> 13);
+            v10 = 2 * (ENT_Y(entity) >> 13);
             if ( v9 >= 0 && v9 < g_minimap_width && v10 >= 0 && v10 < g_minimap_height )
             {
               v11 = (char *)g_minimap_dst_pixels + v9 + i * v10;
@@ -67834,10 +66269,9 @@ void MINI_draw()
         {
           if ( k->player_num )
           {
-            k->entity->is_collidable = 1;
             v15 = k->entity;
-            v16 = 2 * (v15->x >> 13);
-            v17 = 2 * (v15->y >> 13);
+            v16 = 2 * (ENT_X(v15) >> 13);
+            v17 = 2 * (ENT_Y(v15) >> 13);
             if ( v16 >= 0 && v16 < g_minimap_width && v17 >= 0 && v17 < g_minimap_height )
             {
               v18 = (char *)g_minimap_dst_pixels + v16 + i * v17;
@@ -68011,11 +66445,10 @@ void __fastcall SHROUD_reveal(Unit *unit)
 
   if ( unit->player_num == g_player_num )
   {
-    unit->entity->is_collidable = 1;
     entity = unit->entity;
     view_range = unit->stats->view_range;
-    v3 = 2 * (entity->x >> 13);
-    v4 = 2 * (entity->y >> 13);
+    v3 = 2 * (ENT_X(entity) >> 13);
+    v4 = 2 * (ENT_Y(entity) >> 13);
     dirty_x = v3;
     dirty_y = v4;
     if ( view_range <= 128 )
@@ -68739,8 +67172,7 @@ void __cdecl SCHRAP_explosion_medium_task(Task *task)
   ENT_anim_set(entity, 144);
   TSK_yield(task, TaskWait_AnimCompletion, 0);
   SCHRAP_explosion_release();
-  ENT_remove(task->entity);
-  TSK_schedule_self_destruct(task);
+  TSK_terminate_with_entity(task);
 }
 
 //----- (0044BF00) --------------------------------------------------------
@@ -68787,9 +67219,7 @@ void __fastcall TURRET_mode_cosmetic_animate(Turret *turret)
 void __fastcall TURRET_mode_cosmetic_finalize(Turret *turret)
 {
   turret->entity->ctx1 = nullptr;
-  ENT_remove(turret->entity);
-  TSK_schedule_self_destruct(turret->task);
-  TSK_dealloc(turret->parent->task, turret);
+  TURRET_cleanup_self_destruct(turret);
 }
 
 //----- (0044BFF0) --------------------------------------------------------
@@ -69122,11 +67552,8 @@ void GAME_update_anim_anchors_and_minimap()
             turret->projectile_spawn_anchor = v7;
           else
             turret->projectile_spawn_anchor = &g_mobd_anchor_default;
-          i->turret->entity->is_collidable = 1;
-          i->entity->is_collidable = 1;
-          i->turret->entity->x = i->entity->x + p_mobd_anchors->turret->x;
-          i->turret->entity->is_collidable = 1;
-          i->turret->entity->y = i->entity->y + p_mobd_anchors->turret->y;
+          ENT_X(i->turret->entity) = ENT_X(i->entity) + p_mobd_anchors->turret->x;
+          ENT_Y(i->turret->entity) = ENT_Y(i->entity) + p_mobd_anchors->turret->y;
         }
       }
     }
@@ -69276,7 +67703,7 @@ LABEL_18:
 }
 
 //----- (0044C890) --------------------------------------------------------
-void __fastcall UNIT_remove(Unit *unit)
+void UNIT_remove(Unit *unit)
 {
   int player_num; // eax
   RenderNode *rn; // eax
@@ -69301,6 +67728,13 @@ void __fastcall UNIT_remove(Unit *unit)
   g_unit_free_head = unit;
 }
 
+void UNIT_remove_task_and_entity(Unit *u) {
+  TSK_terminate_and_entity(u->task, u->entity);
+  u->entity = nullptr;
+  u->unit_id = 0;
+  UNIT_remove(u);
+}
+
 //----- (0044C910) --------------------------------------------------------
 Entity *__fastcall ENT_create_by_unit_type(UnitType type, int x, int y, int player_num)
 {
@@ -69309,9 +67743,8 @@ Entity *__fastcall ENT_create_by_unit_type(UnitType type, int x, int y, int play
   result = ENT_create_ex(g_unit_stats[type].mobd_id, nullptr, g_unit_stats[type].task_fn, TaskKind_Callback, nullptr);
   if ( result )
   {
-    result->x = x;
-    result->is_collidable = 1;
-    result->y = y;
+    ENT_X(result) = x;
+    ENT_Y(result) = y;
     result->cplc_meta = nullptr;
     result->ctx1 = (void *)(type | (player_num << 16));
   }
@@ -69561,9 +67994,8 @@ void __cdecl UI_show_notification_box_task(Task *task)
     {
       if ( entity )
       {
-        x = entity->x;
-        y = entity->y;
-        entity->is_collidable = 1;
+        x = ENT_X(entity);
+        y = ENT_Y(entity);
         v7 = (x - g_mapd_camera.x) >> 8;
         v8 = (y - g_mapd_camera.y) >> 8;
         if ( v7 < 0x80 )
@@ -69598,7 +68030,6 @@ void __cdecl UI_show_notification_box_task(Task *task)
     }
   }
 }
-// 44CCBB: variable 'entity' is possibly undefined
 
 //----- (0044CDC0) --------------------------------------------------------
 BOOL GAME_is_player_at_units_limit()
@@ -69684,9 +68115,8 @@ void __cdecl UI_show_message_multi_chat_task(Task *task)
     {
       if ( entity )
       {
-        x = entity->x;
-        y = entity->y;
-        entity->is_collidable = 1;
+        x = ENT_X(entity);
+        y = ENT_Y(entity);
         v7 = (x - g_mapd_camera.x) >> 8;
         v8 = (y - g_mapd_camera.y) >> 8;
         if ( v7 < 128 )
@@ -69721,7 +68151,6 @@ void __cdecl UI_show_message_multi_chat_task(Task *task)
     }
   }
 }
-// 44CF01: variable 'entity' is possibly undefined
 
 //----- (0044D000) --------------------------------------------------------
 // Find the next tile to walk to during scan-walk mode.
