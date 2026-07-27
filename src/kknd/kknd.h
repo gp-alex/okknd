@@ -1016,8 +1016,8 @@ typedef enum {
 
 typedef enum : unsigned int {
   Veterancy_Rookie  = 0,
-  Veterancy_Mature  = 0,
-  Veterancy_Veteran = 0,
+  Veterancy_Mature  = 1,
+  Veterancy_Veteran = 2,
 } Veterancy;
 
 typedef enum : unsigned int {
@@ -3514,10 +3514,67 @@ typedef struct {
 
 #define END(x) ((void*)&x)
 
+// ---- Fixed-point domains ------------------------------------------------
+// Two (and only two) fixed-point scales exist in the engine:
+//   world_t       sub-tile world coordinate. 1 tile == WORLD_TILE (1<<13),
+//                 1 pixel == WORLD_PX (1<<8) (32px/tile). pos>>13=tile, pos>>8=pixel.
+//   brightness_t  screen brightness. BRIGHTNESS_ONE (0x80000000) == 1.0 (normal).
+//                 MUST be unsigned: FADE_update subtracts these and a signed
+//                 0x80000000 is negative -> overflow / wrong fade branch.
+typedef int32_t  world_t;
+typedef uint32_t brightness_t;
+
+#define WORLD_TILE_SHIFT 13
+#define WORLD_PX_SHIFT   8
+#define WORLD_TILE      (1 << WORLD_TILE_SHIFT)  // world units per tile  (8192)
+#define WORLD_PX        (1 << WORLD_PX_SHIFT)    // world units per pixel (256)
+#define WORLD_HALF_TILE     (WORLD_TILE / 2)     // 4096 (16px) -- tile centre offset
+#define WORLD_QUARTER_TILE  (WORLD_TILE / 4)     // 2048 (8px)
+#define WORLD_EIGHTH_TILE   (WORLD_TILE / 8)     // 1024 (4px)
+#define BRIGHTNESS_ONE  0x80000000u              // == 1.0 (full/normal)
+
+#define GAME_to_world(tiles)       ((world_t)((double)(tiles) * WORLD_TILE + 0.5))
+#define GAME_px_to_world(px)       ((world_t)((double)(px)    * WORLD_PX   + 0.5))
+#define GAME_to_brightness(level)  ((brightness_t)((double)(level) * BRIGHTNESS_ONE + 0.5))
+
+static inline int     GAME_world_to_tile(world_t coord)  { return coord >> WORLD_TILE_SHIFT; }
+static inline int     GAME_world_to_px(world_t coord)    { return coord >> WORLD_PX_SHIFT; }
+// unsigned intermediate: avoids signed-left-shift-overflow UB (UBSan) for large tiles.
+static inline world_t GAME_tile_to_world(int tile)       { return (world_t)((uint32_t)tile << WORLD_TILE_SHIFT); }
+static inline world_t GAME_world_tile_floor(world_t coord) { return coord & ~(world_t)(WORLD_TILE - 1); }
+
+// val/max as an 8.8 fixed-point fraction: maps 0..max -> 0..256. Only for genuine
+// percents (val <= max); NOT for rates like cost-per-tick (cost<<8)/ticks.
+#define PERCENT_256(val, max) (((val) << 8) / (max))
+
+// amount/ticks as an 8.8 fixed-point RATE (amount per tick/interval); unbounded.
+// e.g. production cost_per_tick = RATE_FP(cost, production_time).
+#define RATE_FP(amount, ticks) (((amount) << 8) / (ticks))
+
+// 8.8 fixed-point multiply: a scaled by an 8.8 fraction (256 == 1.0).
+// e.g. MUL_FP(damage, 51) == damage * 0.2 (51/256). Each arg used once.
+#define MUL_FP(a, frac) (((a) * (frac)) >> 8)
+
+static inline void ENT_set_projectile_damage(Entity *dst, const UnitProjectileType *src, Veterancy vet) {
+  extern int g_veterancy_damage_mod[3];
+  int mod = g_veterancy_damage_mod[vet];   // 8.8 bonus fraction (0=+0%, 51=+20%, 102=+40%)
+  dst->infantry_damage = src->damage_to_infantry  + MUL_FP(src->damage_to_infantry,  mod);
+  dst->vehicle_damage  = src->damage_to_vehicles  + MUL_FP(src->damage_to_vehicles,  mod);
+  dst->building_damage = src->damage_to_buildings + MUL_FP(src->damage_to_buildings, mod);
+}
 
 static inline void TECHLVL_reset(TechLevels *tech) {
   memset(tech, 0, sizeof(TechLevels));
   tech->max_level = 1;
+}
+
+static inline bool TECHLVL_advance(TechLevels *tech, int level) {
+  tech->num_buildings_by_level[level - 1] -= 1;
+  tech->num_buildings_by_level[level] += 1;
+  if(level <= tech->max_level)
+    return false;
+  tech->max_level = level;
+  return true;
 }
 
 #define PLAYERS_MAX 7

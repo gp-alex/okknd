@@ -2,12 +2,54 @@
 
 #define NUM_SCRIPTS 196
 
-bool UNIT_bomber_init();
+#define ENT_X(ent) (*((ent)->is_collidable = 1, &(ent)->x))
+#define ENT_Y(ent) (*((ent)->is_collidable = 1, &(ent)->y))
+#define ENT_Z(ent) (*((ent)->is_collidable = 1, &(ent)->z))
+
+enum {
+  BOMBER_PHASE_DESPAWN = -2,
+  BOMBER_PHASE_DEPART = -1,
+  BOMBER_PHASE_COOLDOWN = 0,
+  BOMBER_PHASE_BOMB_RUN = 1,
+  BOMBER_PHASE_SPAWN_HOME_IN = 2,
+};
+
+// Bomber-specific field accessors
+#define BOMBER_phase(u)         ((u)->multi_purpose_field_1)
+#define BOMBER_bombs(u)         ((u)->multi_purpose_field_3)
+#define BOMBER_bomb_cooldown(u) ((u)->cplc_spawn_param)
+
+// disabled_units_mask bits (one bit = one production slot shared by both races)
+#define DISABLED_UNITS_MASK_CLANHALL         0x00000001u
+#define DISABLED_UNITS_MASK_BLACKSMITH       0x00000002u
+#define DISABLED_UNITS_MASK_MENAGERIE        0x00000004u
+#define DISABLED_UNITS_MASK_ALCHEMY_HALL     0x00000010u
+#define DISABLED_UNITS_MASK_POWER_STATION    0x00000020u
+#define DISABLED_UNITS_MASK_BEAST_ENCLOSURE  0x00000040u
+#define DISABLED_UNITS_MASK_MISSILE_BATTERY  0x00000100u
+#define DISABLED_UNITS_MASK_GRAPESHOT_TOWER  0x00000200u
+#define DISABLED_UNITS_MASK_MG_NEST          0x00000800u
+#define DISABLED_UNITS_MASK_ROTARY_CANNON    0x00001000u
+#define DISABLED_UNITS_MASK_AIRCRAFT         0x00002000u
+#define DISABLED_UNITS_MASK_BIKE_SIDECAR     0x00004000u
+#define DISABLED_UNITS_MASK_DIRE_WOLF        0x00008000u
+#define DISABLED_UNITS_MASK_GIANT_SCORPION   0x00010000u
+#define DISABLED_UNITS_MASK_MOBILE_DERRICK   0x00020000u
+#define DISABLED_UNITS_MASK_BERSERKER        0x00040000u
+#define DISABLED_UNITS_MASK_MAKANIK          0x00080000u
+#define DISABLED_UNITS_MASK_SHOTGUNNER       0x00100000u
+#define DISABLED_UNITS_MASK_PYROMANIAC       0x00200000u
+#define DISABLED_UNITS_MASK_VANDAL           0x00400000u
+#define DISABLED_UNITS_MASK_RIOTER           0x00800000u
+#define DISABLED_UNITS_MASK_BAZOOKA          0x01000000u
+#define DISABLED_UNITS_MASK_CRAZY_HARRY      0x02000000u
+
+bool BOMBER_init();
 void __cdecl UNIT_fighter_tick(Task *);
 void UNIT_bomber_cleanup();
 void __cdecl UNIT_beast_enclosure_tick(Task *task);
-void __fastcall MSG_blacksmith_upgrades(Task *receiver, Task *sender, TaskMessageType message, void *payload);
-void UNIT_bomber_add(Unit *unit);
+void __fastcall MSG_blacksmith_upgrades(Task *receiver, Task *sender, TaskMessageType msg, void *payload);
+void UNIT_bomber_init(Unit *unit);
 void __cdecl TURRET_cosmetic_tick(Task *task);
 void __fastcall TURRET_mode_bomber_follow_orientation(Turret *turret);
 void __fastcall TURRET_mode_bomber_init(Turret *turret);
@@ -34,14 +76,15 @@ void __fastcall NUKE_mode_impact(Nuke *nuke);
 void __fastcall NUKE_mode_falling(Nuke *nuke);
 void __fastcall NUKE_mode_init(Nuke *nuke);
 void __cdecl PROJ_mode_nuke(Task *task);
-BOOL UNIT_beast_enclosure_nukes_condition();
-void __fastcall MSG_beast_enclosure(Task *receiver, Task *sender, TaskMessageType message, void *payload);
+bool UNIT_beast_enclosure_nukes_condition();
+void __fastcall MSG_beast_enclosure_upgrades(Task *receiver, Task *sender, TaskMessageType msg, void *payload);
+void __fastcall MSG_beast_enclosure(Task *receiver, Task *sender, TaskMessageType msg, void *payload);
 void __fastcall UNIT_mode_beast_enclosure_refresh_levels(Unit *this);
 void __fastcall UNIT_mode_beast_enclosure_on_complete(Unit *unit);
 void __fastcall UNIT_mode_beast_enclosure_downgrade_production(Unit *unit);
 void __fastcall UNIT_mode_beast_enclosure_on_death(Unit *unit);
 void __fastcall UNIT_mode_beast_enclosure_complete(Unit *unit);
-void __fastcall MSG_blacksmith(Task *receiver, Task *sender, TaskMessageType message, void *payload);
+void __fastcall MSG_blacksmith(Task *receiver, Task *sender, TaskMessageType msg, void *payload);
 void __cdecl UNIT_blacksmith_tick(Task *task);
 void __fastcall UNIT_mode_blacksmith_on_complete(Unit *unit);
 void __fastcall UNIT_mode_blacksmith_downgrade_production(Unit *unit);
@@ -472,7 +515,7 @@ void __fastcall MSG_machine_shop(Task *receiver, Task *sender, TaskMessageType m
 void __fastcall UNIT_mode_machine_shop_refresh_levels(Unit *unit);
 void __cdecl UNIT_machine_shop_tick(Task *task);
 void __fastcall UNIT_mode_machine_shop_on_complete(Unit *unit);
-void __fastcall UNIT_mode_machine_shop_downgrade_production(Unit *this);
+void __fastcall UNIT_mode_machine_shop_downgrade_production(Unit *unit);
 void __fastcall UNIT_mode_machine_shop_complete(Unit *unit);
 void __fastcall UNIT_mode_machine_shop_on_death(Unit *unit);
 void MISSION_campaign_progress();
@@ -2157,13 +2200,14 @@ int g_terrain_adjacent_tile_offset_by_16_direction[16] =
   -2896,
   -1567
 };
-SoundId g_infantry_death_sounds[5] =
+SoundId g_infantry_death_sounds[6] =
 {
   SoundId_InfantryDeath1,
   SoundId_InfantryDeath2,
   SoundId_InfantryDeath3,
   SoundId_InfantryDeath4,
-  SoundId_InfantryDeath5
+  SoundId_InfantryDeath5,
+  SoundId_InfantryDeath5, // veteran death sound, OOB read in the original code so don't know the sound id
 };
 KeyBinding g_key_bindings[25] =
 {
@@ -5384,6 +5428,7 @@ int g_boxd_active = 0; // weak
 BoxdSpatialHashEntry *g_tile_collisions_pool = NULL;
 BoxdAabb **g_collision_grid = NULL;
 int g_collision_grid_width = 0; // weak
+char g_player_cash_label[32] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '0', '\0'};
 char g_unit_hint_buf_static[64] =
 {
   '\0',
@@ -5957,8 +6002,9 @@ int g_box_query_w; // weak
 int g_box_query_z; // weak
 Task *g_show_message_multi_chat;
 int g_box_query_y; // weak
-Unit *g_unit_list_head;
-Unit *g_unit_list_tail;
+Unit g_unit_list;
+#define g_unit_list_head (g_unit_list.next)
+#define g_unit_list_tail (g_unit_list.prev)
 Unit *g_unit_pool;
 Unit *g_unit_free_head;
 int g_victory_condition_ticks;
@@ -6103,7 +6149,7 @@ void NETZ_session_set_name(const char *name) {
 }
 
 //----- (00401000) --------------------------------------------------------
-bool UNIT_bomber_init()
+bool BOMBER_init()
 {
   g_bomber_pool = malloc(MAX_BOMBERS * sizeof(Bomber));
 
@@ -6136,7 +6182,7 @@ void UNIT_bomber_cleanup()
 }
 
 //----- (00401070) --------------------------------------------------------
-void UNIT_bomber_add(Unit *unit)
+void UNIT_bomber_init(Unit *unit)
 {
   Bomber *n = g_bomber_free_head;
   if(nullptr == n) {
@@ -6164,7 +6210,10 @@ void __fastcall TURRET_mode_bomber_follow_orientation(Turret *turret)
   ptrdiff_t o = turret->parent->orientation;
 
   turret->current_mobd_frame = o;
-  ENT_anim_set_frame(turret->entity, turret->attachment->mobd_lookup_offset_idle, g_angle_to_orientation[o]);
+  ENT_anim_set_frame(
+    turret->entity,
+    turret->attachment->mobd_lookup_offset_idle,
+    g_angle_to_orientation[o]);
 }
 
 //----- (004010E0) --------------------------------------------------------
@@ -6250,75 +6299,50 @@ void __fastcall MSG_bomber(
   }
 }
 
-#define ENT_X(ent) (*((ent)->is_collidable = 1, &(ent)->x))
-#define ENT_Y(ent) (*((ent)->is_collidable = 1, &(ent)->y))
-#define ENT_Z(ent) (*((ent)->is_collidable = 1, &(ent)->z))
-
 //----- (004012D0) --------------------------------------------------------
 void __cdecl UNIT_bomber_tick(Task *task)
 {
-  Unit *unit; // esi
-  RenderCommand *cmd; // ebx
-  Bomber *v4; // eax
-  Entity *entity; // eax
-  unsigned int v6; // edi
-  int v7; // edi
-  int v8; // ebp
-  unsigned int v9; // edi
-  Entity *unit_entity; // edx
-  int rnd; // [esp+Ch] [ebp+4h]
-
-  unit = (Unit *)task->ctx;
-  if ( !unit )
-  {
-    cmd = &g_mapd_layers_rns[0]->rn->cmd;
-    rnd = GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 227) & 3;
-    unit = UNIT_create(task);
-    UNIT_bomber_add(unit);
-    entity = unit->entity;
-    unit->order_next_waypoint_x = ENT_X(entity);
-    unit->order_next_waypoint_y = ENT_Y(entity);
-    if ( rnd > 1 )
-    {
-      v9 = GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 246);
-      v8 = (v9 % (REND_get_height(cmd) - 64) + 32) << 8;
-      if ( (rnd & 1) != 0 )
-        v7 = -8192;
-      else
-        v7 = (REND_get_width(cmd) + 32) << 8;
-    }
-    else
-    {
-      v6 = GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 238);
-      v7 = (v6 % (REND_get_width(cmd) - 64) + 32) << 8;
-      if ( (rnd & 1) != 0 )
-        v8 = -8192;
-      else
-        v8 = (REND_get_height(cmd) + 32) << 8;
-    }
-    ENT_X(unit->entity) = v7;
-    ENT_Y(unit->entity) = v8;
-    unit->entity->rn->transform = (RenderTransform)REND_transform_airborne;
-    unit->entity->z = 46080;
-    unit->task->message_handler = (MessageHandler)MSG_bomber;
-    unit_entity = unit->entity;
-    unit->mode = UNIT_mode_bomber_home_in_on_target;
-    unit_entity->x_speed = 0;
-    unit->entity->y_speed = 0;
-    unit->multi_purpose_field_1 = 2;            // For bomber: phase enum
-                                                // Decremented each time a milestone is reached
-                                                // 2 : spawn off-screen, home in on the target
-                                                // 2 -> 1 : set bombs_remaining=1, fire_cooldown=0, drop bomb mode
-                                                // 1 -> 0 : cooldown wait (40 ticks)
-                                                // (probably repeat bombing runs back when it was a proper bomber and not a nuke)
-                                                // 0 -> -1 : initiate departure sequence
-                                                // -1 -> -2 : depart off-map and despawn
-    TURRET_bomber_init(unit);
-    UNIT_bomber_status_bar_init(unit);          // For bombers:
-                                                // multi_purpose_field_1 : phase enum
-                                                // multi_purpose_field_3 : bombs left in current pass (1 for nuke)
-                                                // cplc_spawn_param : cooldown between bombs (0 at first then 15)
+  Unit *unit = (Unit *)task->ctx;
+  if(unit) {
+    unit->mode(unit);
+    return;
   }
+
+  RenderCommand *cmd = &g_mapd_layers_rns[0]->rn->cmd;
+  int rnd = GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 227) & 3;
+
+  unit = UNIT_create(task);
+  UNIT_bomber_init(unit);
+
+  Entity *e = unit->entity;
+  unit->order_next_waypoint_x = ENT_X(e);
+  unit->order_next_waypoint_y = ENT_Y(e);
+
+  int spawn_x, spawn_y;
+  if(rnd > 1) {
+    // Vertical approach: random height, enter from side
+    spawn_y = (GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 246) % (REND_get_height(cmd) - 64) + 32) << 8;
+    spawn_x = (rnd & 1) ? -8192 : (REND_get_width(cmd) + 32) << 8;
+  } else {
+    // Horizontal approach: random horizontal, enter from top/bottom
+    spawn_x = (GAME_rand_sync("C:\\k\\Scripts\\Aircraft.cpp", 238) % (REND_get_width(cmd) - 64) + 32) << 8;
+    spawn_y = (rnd & 1) ? -8192 : (REND_get_height(cmd) + 32) << 8;
+  }
+
+  ENT_X(e) = spawn_x;
+  ENT_Y(e) = spawn_y;
+  e->rn->transform = (RenderTransform)REND_transform_airborne;
+  e->z = 46080;
+  e->x_speed = 0;
+  e->y_speed = 0;
+
+  unit->task->message_handler = MSG_bomber;
+  unit->mode = UNIT_mode_bomber_home_in_on_target;
+  BOMBER_phase(unit) = BOMBER_PHASE_SPAWN_HOME_IN;
+
+  TURRET_bomber_init(unit);
+  UNIT_bomber_status_bar_init(unit);
+
   unit->mode(unit);
 }
 
@@ -6399,285 +6423,200 @@ void __fastcall UNIT_mode_bomber_cleanup(Unit *unit)
 }
 
 //----- (00401660) --------------------------------------------------------
-void __fastcall UNIT_mode_bomber_on_death(Unit *unit)
-{
+void __fastcall UNIT_mode_bomber_on_death(Unit *unit) {
   UNIT_bomber_initiate_end_sequence(unit, 1);
 }
 
 //----- (00401670) --------------------------------------------------------
-void __fastcall UNIT_mode_bomber_depart(Unit *unit)
-{
+void __fastcall UNIT_mode_bomber_depart(Unit *unit) {
   UNIT_bomber_initiate_end_sequence(unit, 0);
 }
 
 //----- (00401680) --------------------------------------------------------
-void __fastcall UNIT_bomber_set_departure_point(Unit *unit)
-{
+void __fastcall UNIT_bomber_set_departure_point(Unit *unit) {
   unit->order_next_waypoint_x = (REND_get_width(&g_mapd_layers_rns[0]->rn->cmd) + 32) << 8;
 }
 
 //----- (004016B0) --------------------------------------------------------
-void __fastcall UNIT_mode_bomber_drop_bomb(Unit *unit)
-{
-  int bombing_cooldown = unit->cplc_spawn_param;
-  if(bombing_cooldown) {
-    unit->cplc_spawn_param = bombing_cooldown - 1;
+void __fastcall UNIT_mode_bomber_drop_bomb(Unit *unit) {
+  if(BOMBER_bomb_cooldown(unit)) {
+    BOMBER_bomb_cooldown(unit) -= 1;
     return;
   }
 
-  int bombs_remaining = unit->multi_purpose_field_3;
-  if(!bombs_remaining) {
+  if(!BOMBER_bombs(unit)) {
     unit->mode = UNIT_mode_bomber_home_in_on_target;
     return;
   }
 
-  UnitProjectileType *projectile = unit->stats->projectile;
-  if(projectile && g_num_active_projectiles < 200) {
+  UnitProjectileType *proj = unit->stats->projectile;
+  if(proj && g_num_active_projectiles < 200) {
     ++g_num_active_projectiles;
 
     Entity *bomb = ENT_create_ex(
-      projectile->mobd_id,
+      proj->mobd_id,
       unit->entity,
-      projectile->task_fn,
+      proj->task_fn,
       TaskKind_Callback,
       unit->mobd_anchors.turret);
 
-    if(projectile->mobd_lookup_offset_travel != -1) {
-      ENT_anim_set(bomb, projectile->mobd_lookup_offset_travel);
-    }
+    if(proj->mobd_lookup_offset_travel != -1)
+      ENT_anim_set(bomb, proj->mobd_lookup_offset_travel);
 
     bomb->z = unit->entity->z;
     bomb->rn->transform = (RenderTransform)REND_transform_aircraft_turret;
-    bomb->ctx1 = projectile;
+    bomb->ctx1 = proj;
     bomb->task->ctx = nullptr;
     bomb->projectile_ctx.attacker = unit;
     bomb->projectile_ctx.attacker_unit_id = unit->unit_id;
 
-    int veterancy_mod = g_veterancy_damage_mod[unit->veterancy];
-    bomb->infantry_damage = projectile->damage_to_infantry
-                          + ((projectile->damage_to_infantry * veterancy_mod) >> 8);
-    bomb->vehicle_damage = projectile->damage_to_vehicles
-                         + ((projectile->damage_to_vehicles * veterancy_mod) >> 8);
-    bomb->building_damage = projectile->damage_to_buildings
-                          + ((projectile->damage_to_buildings * veterancy_mod) >> 8);
+    ENT_set_projectile_damage(bomb, proj, unit->veterancy);
   }
 
-  unit->cplc_spawn_param = 15;
-  unit->multi_purpose_field_3 = bombs_remaining - 1;
+  BOMBER_bomb_cooldown(unit) = 15;
+  BOMBER_bombs(unit) -= 1;
 }
 
 //----- (004017E0) --------------------------------------------------------
-void __fastcall UNIT_bomber_wait_between_passes(Unit *unit)
-{
+void __fastcall UNIT_bomber_wait_between_passes(Unit *unit) {
   TSK_yield(unit->task, TaskWait_Interval, 40);
 }
 
 //----- (00401800) --------------------------------------------------------
-void __fastcall UNIT_mode_bomber_home_in_on_target(Unit *unit)
-{
-  char v2; // al
-  int order_next_waypoint_x; // ebx
-  Entity *entity; // ecx
-  int order_next_waypoint_y; // ebp
-  int v6; // eax
-  int v7; // ecx
-  int v8; // edi
-  int v9; // ebp
-  int num_bomb_passes_remaining; // eax
+void __fastcall UNIT_mode_bomber_home_in_on_target(Unit *unit) {
+  Entity *e = unit->entity;
+  char o = MATH_direction_to_orientation(unit->order_next_waypoint_x - e->x,
+                                         unit->order_next_waypoint_y - e->y);
+  ENT_anim_advance_rotation((ptrdiff_t *)&unit->orientation, (MobdOrientation)(o & 0xF0), 5);
+  ENT_anim_hot_swap_frame(e, unit->stats->mobd_lookup_offset_move,
+                          g_angle_to_orientation[unit->orientation]);
 
-  v2 = MATH_direction_to_orientation(
-         unit->order_next_waypoint_x - unit->entity->x,
-         unit->order_next_waypoint_y - unit->entity->y);
-  ENT_anim_advance_rotation((ptrdiff_t *)&unit->orientation, (MobdOrientation)(v2 & 0xF0), 5);
-  ENT_anim_hot_swap_frame(unit->entity, unit->stats->mobd_lookup_offset_move, g_angle_to_orientation[unit->orientation]);
-  unit->entity->x_speed = (unit->stats->speed * g_sin_tbl[g_orientation_to_sin[unit->orientation]]) >> 6;
-  unit->entity->y_speed = -(unit->stats->speed * g_sin_tbl[g_orientation_to_sin[unit->orientation] + 8]) >> 6;
-  order_next_waypoint_x = unit->order_next_waypoint_x;
-  entity = unit->entity;
-  order_next_waypoint_y = unit->order_next_waypoint_y;
-  v6 = entity->x >> 13;
-  v7 = entity->y >> 13;
-  v8 = (order_next_waypoint_y - 2048) >> 13;
-  v9 = (order_next_waypoint_y + 2048) >> 13;
-  if ( v6 >= (order_next_waypoint_x - 2048) >> 13 && v6 <= (order_next_waypoint_x + 2048) >> 13 && v7 >= v8 && v7 <= v9 )
-  {
-    num_bomb_passes_remaining = unit->multi_purpose_field_1 - 1;
-    unit->multi_purpose_field_1 = num_bomb_passes_remaining;
-    if ( num_bomb_passes_remaining >= 0 )
-    {
-      if ( num_bomb_passes_remaining )
-      {
-        unit->cplc_spawn_param = 0;             // pass cooldown
-        unit->multi_purpose_field_3 = 1;        // bombs per pass
-        unit->mode = UNIT_mode_bomber_drop_bomb;
-      }
-      else
-      {
-        TSK_yield(unit->task, TaskWait_Interval, 40);// INLINED UNIT_bomber_wait_between_passes
-      }
-    }
+  int sin_idx = g_orientation_to_sin[unit->orientation];
+  e->x_speed = (unit->stats->speed * g_sin_tbl[sin_idx]) >> 6;
+  e->y_speed = -(unit->stats->speed * g_sin_tbl[sin_idx + 8]) >> 6;
+
+  int tx = GAME_world_to_tile(e->x);
+  int ty = GAME_world_to_tile(e->y);
+  int target_tx_min = GAME_world_to_tile(unit->order_next_waypoint_x - WORLD_QUARTER_TILE);
+  int target_tx_max = GAME_world_to_tile(unit->order_next_waypoint_x + WORLD_QUARTER_TILE);
+  int target_ty_min = GAME_world_to_tile(unit->order_next_waypoint_y - WORLD_QUARTER_TILE);
+  int target_ty_max = GAME_world_to_tile(unit->order_next_waypoint_y + WORLD_QUARTER_TILE);
+
+  if(tx < target_tx_min || tx > target_tx_max || ty < target_ty_min || ty > target_ty_max)
+    return;
+
+  int next_phase = BOMBER_phase(unit) - 1;
+  BOMBER_phase(unit) = next_phase;
+
+  switch(next_phase) {
+  case BOMBER_PHASE_BOMB_RUN:
+  case BOMBER_PHASE_SPAWN_HOME_IN:
+    BOMBER_bomb_cooldown(unit) = 0;
+    BOMBER_bombs(unit) = 1;
+    unit->mode = UNIT_mode_bomber_drop_bomb;
+    break;
+
+  case BOMBER_PHASE_COOLDOWN:
+    TSK_yield(unit->task, TaskWait_Interval, 40);
+    break;
+
+  case BOMBER_PHASE_DEPART:
+  case BOMBER_PHASE_DESPAWN:
+    if(next_phase == BOMBER_PHASE_DESPAWN)
+      TSK_yield(unit->task, TaskWait_Interval, 40);
+    // Re-read phase after potential yield (mirrors original)
+    if(BOMBER_phase(unit) == BOMBER_PHASE_DEPART)
+      unit->order_next_waypoint_x = (REND_get_width(&g_mapd_layers_rns[0]->rn->cmd) + 32) << 8;
     else
-    {
-      if ( num_bomb_passes_remaining == -2 )
-        TSK_yield(unit->task, TaskWait_Interval, 40);
-      if ( unit->multi_purpose_field_1 == -1 )
-        unit->order_next_waypoint_x = (REND_get_width(&g_mapd_layers_rns[0]->rn->cmd) + 32) << 8;// INLINED UNIT_bomber_set_departure_point
-      else
-        UNIT_bomber_initiate_end_sequence(unit, 0);
-    }
+      UNIT_bomber_initiate_end_sequence(unit, 0);
+    break;
   }
+}
+
+void AIRSTRIKE_activate(AirstrikeSidebar *as) {
+  as->button->collider = g_unit_collision_handlers;
+  as->button->rn->flags &= ~RenderNode_Skip;
+  as->mode = AIRSTRIKE_mode_active;
+}
+
+void AIRSTRIKE_refresh_counter(AirstrikeSidebar *as) {
+  int n = as->num_airstrikes_available;
+  if(n <= 1) {
+    as->counter->rn->flags |= RenderNode_Skip;
+  } else {
+    as->counter->rn->flags &= ~RenderNode_Skip;
+    int frame = (n <= 9) ? n - 1 : 8;  // 1..9 or infinity
+    ENT_anim_set_frame(as->counter, 2276, frame);
+  }
+}
+
+void AIRSTRIKE_reset(AirstrikeSidebar *as) {
+    as->num_airstrikes_available = 0;
+    as->mode = AIRSTRIKE_mode_init;
 }
 
 //----- (004019A0) --------------------------------------------------------
-void __fastcall AIRSTRIKE_mode_check_availability(AirstrikeSidebar *airstrike)
-{
-  int num_airstrikes_available; // eax
-  int v2; // eax
+void __fastcall AIRSTRIKE_mode_check_availability(AirstrikeSidebar *as) {
+  if(as->num_airstrikes_available <= 0)
+    return;
 
-  if ( airstrike->num_airstrikes_available > 0 )
-  {
-    airstrike->button->collider = g_unit_collision_handlers;
-    airstrike->button->rn->flags &= ~RenderNode_Skip;
-    num_airstrikes_available = airstrike->num_airstrikes_available;
-    airstrike->mode = AIRSTRIKE_mode_active;
-    if ( num_airstrikes_available > 0 )
-    {
-      if ( num_airstrikes_available <= 1 )
-      {
-        airstrike->counter->rn->flags |= RenderNode_Skip;
-      }
-      else
-      {
-        airstrike->counter->rn->flags &= ~RenderNode_Skip;
-        v2 = airstrike->num_airstrikes_available;
-        if ( v2 <= 9 )
-          ENT_anim_set_frame(airstrike->counter, 2276, v2 - 1);
-        else
-          ENT_anim_set_frame(airstrike->counter, 2276, 8);
-      }
-    }
-    else
-    {
-      airstrike->num_airstrikes_available = 0;
-      airstrike->mode = AIRSTRIKE_mode_init;
-    }
-  }
+  AIRSTRIKE_activate(as);
+  AIRSTRIKE_refresh_counter(as);
 }
 
 //----- (00401A40) --------------------------------------------------------
-void __fastcall AIRSTRIKE_mode_init(AirstrikeSidebar *airstrike)
-{
-  airstrike->button->collider = &g_null_collision;
-  airstrike->button->rn->flags |= RenderNode_Skip;
-  airstrike->counter->rn->flags |= RenderNode_Skip;
-  airstrike->mode = AIRSTRIKE_mode_check_availability;
+void __fastcall AIRSTRIKE_mode_init(AirstrikeSidebar *as) {
+  as->button->collider = &g_null_collision;
+  as->button->rn->flags |= RenderNode_Skip;
+  as->counter->rn->flags |= RenderNode_Skip;
+  as->mode = AIRSTRIKE_mode_check_availability;
 }
 
 //----- (00401A80) --------------------------------------------------------
-void __fastcall AIRSTRIKE_mode_active(AirstrikeSidebar *airstrike)
-{
-  int num_airstrikes_available; // eax
-  int v2; // eax
+void __fastcall AIRSTRIKE_mode_active(AirstrikeSidebar *as) {
+  int n = as->num_airstrikes_available;
+  if(n <= 0) {
+    AIRSTRIKE_reset(as);
+    return;
+  }
 
-  num_airstrikes_available = airstrike->num_airstrikes_available;
-  if ( num_airstrikes_available > 0 )
-  {
-    if ( num_airstrikes_available <= 1 )
-    {
-      airstrike->counter->rn->flags |= RenderNode_Skip;
-    }
-    else
-    {
-      airstrike->counter->rn->flags &= ~RenderNode_Skip;
-      v2 = airstrike->num_airstrikes_available;
-      if ( v2 <= 9 )
-        ENT_anim_set_frame(airstrike->counter, 2276, v2 - 1);// 1..9
-      else
-        ENT_anim_set_frame(airstrike->counter, 2276, 8);// infinity
-    }
-  }
-  else
-  {
-    airstrike->num_airstrikes_available = 0;
-    airstrike->mode = AIRSTRIKE_mode_init;
-  }
+  AIRSTRIKE_refresh_counter(as);
 }
 
 //----- (00401AF0) --------------------------------------------------------
-void __fastcall AIRSTRIKE_mode_refresh(AirstrikeSidebar *airstrike)
-{
-  int num_airstrikes_available; // eax
-  int v2; // eax
-
-  airstrike->button->collider = g_unit_collision_handlers;
-  airstrike->button->rn->flags &= ~RenderNode_Skip;
-  num_airstrikes_available = airstrike->num_airstrikes_available;// INLINED AIRSTRIKE_mode_active
-  airstrike->mode = AIRSTRIKE_mode_active;
-  if ( num_airstrikes_available > 0 )
-  {
-    if ( num_airstrikes_available <= 1 )
-    {
-      airstrike->counter->rn->flags |= RenderNode_Skip;
-    }
-    else
-    {
-      airstrike->counter->rn->flags &= ~RenderNode_Skip;
-      v2 = airstrike->num_airstrikes_available;
-      if ( v2 <= 9 )
-        ENT_anim_set_frame(airstrike->counter, 2276, v2 - 1);// 1..9
-      else
-        ENT_anim_set_frame(airstrike->counter, 2276, 8);// infinity
-    }
-  }
-  else
-  {
-    airstrike->num_airstrikes_available = 0;
-    airstrike->mode = AIRSTRIKE_mode_init;
-  }
+void __fastcall AIRSTRIKE_mode_refresh(AirstrikeSidebar *as) {
+  AIRSTRIKE_activate(as);
+  AIRSTRIKE_mode_active(as);
 }
 
 //----- (00401B80) --------------------------------------------------------
 void __fastcall MSG_airstrike_sidebar(
         Task *receiver,
         Task *sender,
-        TaskMessageType message,
+        TaskMessageType msg,
         void *payload)
 {
   (void)sender;
   (void)payload;
 
-  AirstrikeSidebar *ctx; // eax
-  int v5; // ecx
-  int num_airstrikes_available; // ecx
-
-  ctx = (AirstrikeSidebar *)receiver->ctx;
-  switch ( message )
-  {
+  AirstrikeSidebar *ctx = receiver->ctx;
+  switch (msg) {
     case TaskMessage_UnitSelected_or_UiLeftClick:
       ++ctx->num_airstrikes_available;
       break;
     case TaskMessage_UnitDeselected_or_SaveLoadScrollDown_or_ShowNotificationBox:
-      num_airstrikes_available = ctx->num_airstrikes_available;
-      if ( num_airstrikes_available > 0 )
-        ctx->num_airstrikes_available = num_airstrikes_available - 1;
+      if(ctx->num_airstrikes_available > 0)
+        ctx->num_airstrikes_available -= 1;
       break;
     case TaskMessage_SidebarForceClose:
-      goto LABEL_6;
+      AIRSTRIKE_reset(ctx);
+      break;
     case TaskMessage_SidebarRefreshOptions:
-      if ( ctx->num_airstrikes_available > 0 )
-      {
-        do
-        {
-          if ( g_num_player_units > 0 )
-            --g_num_player_units;
-          v5 = ctx->num_airstrikes_available - 1;
-          ctx->num_airstrikes_available = v5;
-        }
-        while ( v5 > 0 );
+      for(int i = 0; i < ctx->num_airstrikes_available; ++i) {
+        if(g_num_player_units > 0)
+          --g_num_player_units;
       }
-LABEL_6:
-      ctx->num_airstrikes_available = 0;
-      ctx->mode = AIRSTRIKE_mode_init;
+      AIRSTRIKE_reset(ctx);
       break;
     default:
       return;
@@ -6685,426 +6624,343 @@ LABEL_6:
 }
 
 //----- (00401C30) --------------------------------------------------------
-void __cdecl AIRSTRIKE_sidebar_task(Task *task)
-{
-  AirstrikeSidebar *ctx; // edi
-  Entity *entity; // esi
-  Entity *v3; // ebx
-  RenderNode *rn; // ecx
-
-  ctx = (AirstrikeSidebar *)task->ctx;
-  if ( !ctx )
-  {
-    ctx = (AirstrikeSidebar *)TSK_alloc(task, 0x14u);
-    if ( ctx )
-    {
-      entity = task->entity;
-      v3 = g_airstrike_button->entity;
-      task->ctx = ctx;
-      ctx->button = v3;
-      ctx->num_airstrikes_available = 0;
-      ctx->counter = entity;
-      ctx->task = task;
-      ctx->mode = AIRSTRIKE_mode_init;
-      task->message_handler = MSG_airstrike_sidebar;
-      GAME_player_is_evolved();
-      ENT_X(v3) = 0x26000;
-      ENT_Y(v3) = 0x12000;
-      v3->z = 2;
-      rn = entity->rn;
-      ENT_X(entity) = 0x26400;
-      ENT_Y(entity) = 0x13800;
-      entity->z = 3;
-      rn->transform = (RenderTransform)REND_transform_ui;
-      entity->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[g_player_num]];// INLINED RenderNode.SetPaletteOverride
-      entity->rn->flags |= RenderNode_PaletteOverride;
-      ENT_anim_set_frame(entity, 2276, 0);
-    }
+void __cdecl AIRSTRIKE_sidebar_task(Task *t) {
+  AirstrikeSidebar *as = t->ctx;
+  if(as) {
+    as->mode(as);
+    return;
   }
-  ctx->mode(ctx);
+
+  as = TSK_alloc(t, sizeof(AirstrikeSidebar));
+  assert(as);
+
+  Entity *btn = g_airstrike_button->entity;
+  Entity *ctr = t->entity;
+
+  t->ctx = as;
+  t->message_handler = MSG_airstrike_sidebar;
+
+  as->button = btn;
+  as->counter = ctr;
+  as->task = t;
+  AIRSTRIKE_reset(as);
+
+  ENT_X(btn) = GAME_px_to_world(608);
+  ENT_Y(btn) = GAME_px_to_world(288);
+  btn->z = 2;
+
+  ENT_X(ctr) = GAME_px_to_world(612);
+  ENT_Y(ctr) = GAME_px_to_world(312);
+  ctr->z = 3;
+  ctr->rn->transform = (RenderTransform)REND_transform_ui;
+  ctr->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[g_player_num]];
+  ctr->rn->flags |= RenderNode_PaletteOverride;
+  ENT_anim_set_frame(ctr, 2276, 0);
+
+  as->mode(as);
 }
 
 //----- (00401D10) --------------------------------------------------------
-void __fastcall NUKE_mode_cleanup(Nuke *nuke)
-{
+void __fastcall NUKE_mode_cleanup(Nuke *nuke) {
   --g_num_active_projectiles;
   TSK_terminate_and_entity(nuke->task, nuke->entity);
 }
 
 //----- (00401D30) --------------------------------------------------------
-void __fastcall NUKE_mode_impact(Nuke *nuke)
-{
-  Entity *entity; // esi
-  UnitProjectileType *proj; // edi
-  Task *task; // [esp-Ch] [ebp-1Ch]
+void __fastcall NUKE_mode_impact(Nuke *n) {
+  Entity *e = n->entity;
+  UnitProjectileType *p = e->ctx1;
 
-  entity = nuke->entity;
-  proj = (UnitProjectileType *)entity->ctx1;
-  entity->x_speed = 0;
-  entity->y_speed = 0;
-  entity->z_speed = 0;
-  entity->z_acceleration = 0;
-  entity->z = 1;
-  if ( proj->mobd_lookup_offset_impact != -1 )
-  {
-    entity->z = 255;
-    SOUND_play_positional(entity, SoundId_Explosion_Nuke, g_sfx_vol, 0);
-    entity->mobd_id = MobdId_Explosions;
-    ENT_anim_set(entity, proj->mobd_lookup_offset_impact);
-    entity->anim_speed = 0x20000000;
-    entity->z = 768;
-    SCHRAP_nuke_flak_create(entity);
-    ENT_apply_aoe_damage(entity, proj->radius);
+  e->x_speed = 0;
+  e->y_speed = 0;
+  e->z_speed = 0;
+  e->z_acceleration = 0;
+  e->z = 1;
+
+  if(p->mobd_lookup_offset_impact != -1) {
+    e->z = 255;
+    SOUND_play_positional(e, SoundId_Explosion_Nuke, g_sfx_vol, 0);
+    e->mobd_id = MobdId_Explosions;
+    ENT_anim_set(e, p->mobd_lookup_offset_impact);
+    e->anim_speed = 0x20000000;
+    e->z = 768;
+    SCHRAP_nuke_flak_create(e);
+    ENT_apply_aoe_damage(e, p->radius);
   }
-  task = nuke->task;
-  nuke->mode = NUKE_mode_cleanup;
-  TSK_yield(task, TaskWait_AnimCompletion, 0);
+
+  n->mode = NUKE_mode_cleanup;
+  TSK_yield(n->task, TaskWait_AnimCompletion, 0);
 }
 
 //----- (00401DC0) --------------------------------------------------------
-void __fastcall NUKE_mode_falling(Nuke *nuke)
-{
-  if ( nuke->entity->z <= 0 )
-    nuke->mode = NUKE_mode_impact;
+void __fastcall NUKE_mode_falling(Nuke *n) {
+  if (n->entity->z <= 0)
+    n->mode = NUKE_mode_impact;
 }
 
 //----- (00401DE0) --------------------------------------------------------
-void __fastcall NUKE_mode_init(Nuke *nuke)
-{
-  Entity *entity; // ecx
-
-  entity = nuke->entity;
-  entity->collider = &g_null_collision;
-  entity->z_speed = 512;
-  entity->z_speed_limit = 512;
-  entity->z_acceleration = -34;
-  SOUND_play_positional(entity, SoundId_NukeFallingWhistle, g_sfx_vol, 0);
-  nuke->mode = NUKE_mode_falling;
+void __fastcall NUKE_mode_init(Nuke *n) {
+  Entity *e = n->entity;
+  e->collider = &g_null_collision;
+  e->z_speed = 512;
+  e->z_speed_limit = 512;
+  e->z_acceleration = -34;
+  SOUND_play_positional(e, SoundId_NukeFallingWhistle, g_sfx_vol, 0);
+  n->mode = NUKE_mode_falling;
 }
 
 //----- (00401E20) --------------------------------------------------------
-void __cdecl PROJ_mode_nuke(Task *task)
-{
-  Nuke *nuke; // eax
-  Entity *entity; // ecx
+void __cdecl PROJ_mode_nuke(Task *tsk) {
+  Nuke *n = tsk->ctx;
+  if (!n) {
+    n = TSK_alloc(tsk, sizeof(Nuke));
+    assert(n);
 
-  nuke = (Nuke *)task->ctx;
-  if ( !nuke )
-  {
-    nuke = (Nuke *)TSK_alloc(task, 0xCu);
-    if ( nuke )
-    {
-      entity = task->entity;
-      task->ctx = nuke;
-      nuke->entity = entity;
-      nuke->task = task;
-      nuke->mode = NUKE_mode_init;
-    }
+    tsk->ctx = n;
+    n->entity = tsk->entity;
+    n->task = tsk;
+    n->mode = NUKE_mode_init;
   }
-  nuke->mode(nuke);
+  n->mode(n);
 }
 
 //----- (00401E60) --------------------------------------------------------
-BOOL UNIT_beast_enclosure_nukes_condition()
-{
+bool UNIT_beast_enclosure_nukes_condition() {
   return g_beast_enclosure_levels.max_level >= 4;
+}
+
+void __fastcall MSG_beast_enclosure_upgrades(
+  Task *receiver,
+  Task *sender,
+  TaskMessageType msg,
+  void *payload)
+{
+  Unit *unit = receiver->ctx;
+  BuildingState *state = unit->state;
+  SidebarFactoryProduction *prod = state->prod;
+  state->upgrade_level = min(4, state->upgrade_level + 1);
+
+  if(unit->player_num == g_player_num) {
+    TECHLVL_advance(&g_beast_enclosure_levels, state->upgrade_level);
+    switch (state->upgrade_level) {
+      case 2:
+        UI_sidebar_prod_enable_unit(prod, UnitType_Mute_WarMastadont, 2520);
+        break;
+      case 3:
+        UI_sidebar_prod_enable_unit(prod, UnitType_Mute_GiantBeetle, 2512);
+        break;
+      case 4:
+        UI_sidebar_prod_enable_unit(prod, UnitType_Mute_MissileCrab, 2504);
+        if ( GAME_is_clanhall_maxed() )
+          AIRSTRIKE_try_unlock();
+        break;
+      default:
+        break;
+    }
+  }
+  UNIT_status_bar_update_tech(unit);
+  MSG_building_generic(receiver, sender, msg, payload);
+}
+
+void UNIT_on_ready(Unit *u, UnitType type) {
+  Entity *e = ENT_create_by_unit_type(
+    type,
+    u->mobd_anchors.rally->x + ENT_X(u->entity),
+    u->mobd_anchors.rally->y + ENT_Y(u->entity),
+    u->player_num);
+  if(!e) return;
+  if (g_player_num != u->player_num) return;
+
+  UI_show_notification_box(nullptr, "Unit Ready");
+  switch(type) {
+    case UnitType_Mute_DireWolf:
+      SOUND_play(SoundId_Mute_DireWolf_Recall, 0, g_sfx_vol, 16, nullptr);
+      break;
+    case UnitType_Mute_GiantScorpion:
+      SOUND_play(SoundId_Mute_GiantScorpion_Recall, 0, g_sfx_vol, 16, nullptr);
+      break;
+    case UnitType_Mute_WarMastadont:
+      SOUND_play(SoundId_Mute_WarMastadont_Recall, 0, g_sfx_vol, 16, nullptr);
+      break;
+    case UnitType_Mute_GiantBeetle:
+      SOUND_play(SoundId_Mute_GiantBeetle_Recall, 0, g_sfx_vol, 16, nullptr);
+      break;
+    case UnitType_Mute_MissileCrab:
+      SOUND_play(SoundId_Mute_MissileCrab_Recall, 0, g_sfx_vol, 16, nullptr);
+      break;
+    case UnitType_Mute_BikeAndSidecar:  // was missing voice response in the original
+    case UnitType_Mute_MonsterTruck:
+    case UnitType_Mute_MobileDerrick:  // was missing voice response in the original
+    case UnitType_Mute_Tanker:
+      SOUND_play(SoundId_Mute_UnitReady, 0, g_sfx_vol, 16, nullptr);
+      break;
+    default:
+      break;
+  }
 }
 
 //----- (00401E70) --------------------------------------------------------
 void __fastcall MSG_beast_enclosure(
-        Task *receiver,
-        Task *sender,
-        TaskMessageType message,
-        void *payload)
+  Task *receiver,
+  Task *sender,
+  TaskMessageType msg,
+  void *payload)
 {
-  Unit *unit; // esi
-  BuildingState *state; // eax
-  SidebarFactoryProduction *prod; // ecx
-  int v11; // eax
-  int v12; // eax
+  Unit *unit = receiver->ctx;
+  if (unit->destroyed)
+    return;
 
-  unit = (Unit *)receiver->ctx;
-  if ( !unit->destroyed )
-  {
-    switch ( message )
-    {
-      case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, payload, UNIT_mode_beast_enclosure_on_death);
-        UNIT_building_status_bar_update_health(unit);
-        return;
-      case TaskMessage_Sabotage:
-        UNIT_sabotage(unit, payload, UNIT_mode_beast_enclosure_on_death);
-        return;
-      case TaskMessage_Destroy:
-        UNIT_on_destroy(unit, UNIT_mode_beast_enclosure_on_death);
-        return;
-      case TaskMessage_UnitReady:
-        UnitType type = (UnitType)(uintptr_t)payload;
-        if ( ENT_create_by_unit_type(
-               type,
-               unit->mobd_anchors.rally->x + ENT_X(unit->entity),
-               unit->mobd_anchors.rally->y + ENT_Y(unit->entity),
-               unit->player_num)
-          && g_player_num == unit->player_num )
-        {
-          UI_show_notification_box(nullptr, "Unit Ready");
-          switch (type)
-          {
-            case UnitType_Mute_DireWolf:
-              SOUND_play(SoundId_Mute_DireWolf_Recall, 0, g_sfx_vol, 16, nullptr);
-              break;
-            case UnitType_Mute_GiantScorpion:
-              SOUND_play(SoundId_Mute_GiantScorpion_Recall, 0, g_sfx_vol, 16, nullptr);
-              break;
-            case UnitType_Mute_WarMastadont:
-              SOUND_play(SoundId_Mute_WarMastadont_Recall, 0, g_sfx_vol, 16, nullptr);
-              break;
-            case UnitType_Mute_GiantBeetle:
-              SOUND_play(SoundId_Mute_GiantBeetle_Recall, 0, g_sfx_vol, 16, nullptr);
-              break;
-            case UnitType_Mute_MissileCrab:
-              SOUND_play(SoundId_Mute_MissileCrab_Recall, 0, g_sfx_vol, 16, nullptr);
-              break;
-            default:
-              return;
-          }
-        }
-        return;
-      case TaskMessage_UpgradeComplete:
-        state = (BuildingState *)unit->state;// inlined
-        prod = state->prod;
-        state->upgrade_level = min(4, state->upgrade_level + 1);
-        if ( unit->player_num != g_player_num )
-          goto LABEL_26;
-        g_beast_enclosure_levels.num_buildings_by_level[state->upgrade_level - 1] -= 1;
-        g_beast_enclosure_levels.num_buildings_by_level[state->upgrade_level] += 1;
-        if ( state->upgrade_level > g_beast_enclosure_levels.max_level )
-          g_beast_enclosure_levels.max_level = state->upgrade_level;
-        v11 = state->upgrade_level - 2;
-        if ( v11 )
-        {
-          v12 = v11 - 1;
-          if ( v12 )
-          {
-            if ( v12 == 1 )
-            {
-              UI_sidebar_prod_enable_unit(prod, UnitType_Mute_MissileCrab, 2504);
-              if ( GAME_is_clanhall_maxed() )
-              {
-                AIRSTRIKE_try_unlock();
-                UNIT_status_bar_update_tech(unit);
-                MSG_building_generic(receiver, sender, message, payload);
-                return;
-              }
-            }
-          }
-          else
-          {
-            UI_sidebar_prod_enable_unit(prod, UnitType_Mute_GiantBeetle, 2512);
-          }
-        }
-        else
-        {
-          UI_sidebar_prod_enable_unit(prod, UnitType_Mute_WarMastadont, 2520);
-        }
-LABEL_26:
-        UNIT_status_bar_update_tech(unit);
-        MSG_building_generic(receiver, sender, message, payload);
-        break;
-      default:
-        MSG_building_generic(receiver, sender, message, payload);
-        return;
-    }
+  switch(msg) {
+    case TaskMessage_ReceiveDamage:
+      UNIT_apply_damage_ex(unit, payload, UNIT_mode_beast_enclosure_on_death);
+      UNIT_building_status_bar_update_health(unit);
+      break;
+    case TaskMessage_Sabotage:
+      UNIT_sabotage(unit, payload, UNIT_mode_beast_enclosure_on_death);
+      break;
+    case TaskMessage_Destroy:
+      UNIT_on_destroy(unit, UNIT_mode_beast_enclosure_on_death);
+      break;
+    case TaskMessage_UnitReady:
+      UNIT_on_ready(unit, (UnitType)(uintptr_t)payload);
+      break;
+    case TaskMessage_UpgradeComplete:
+      MSG_beast_enclosure_upgrades(receiver, sender, msg, payload);
+      break;
+    default:
+      MSG_building_generic(receiver, sender, msg, payload);
+      break;
   }
 }
 
 //----- (00402150) --------------------------------------------------------
-void __fastcall UNIT_mode_beast_enclosure_refresh_levels(Unit *this)
-{
-  BuildingState *state; // esi
-
-  state = (BuildingState *)this->state;
+void __fastcall UNIT_mode_beast_enclosure_refresh_levels(Unit *u) {
+  BuildingState *state = u->state;
   state->same_building_count = 0;
-  TSK_broadcast_message(this->task, TaskMessage_BuildingComplete, nullptr, TaskChannel_BeastEnclosure);
-  if ( !state->same_building_count )
-  {
+
+  TSK_broadcast_message(u->task, TaskMessage_BuildingComplete, nullptr, TaskChannel_BeastEnclosure);
+  if(!state->same_building_count)
     TECHLVL_reset(&g_beast_enclosure_levels);
-  }
 }
 
 //----- (004021A0) --------------------------------------------------------
-void __cdecl UNIT_beast_enclosure_tick(Task *task)
-{
-  Unit *unit; // esi
-  BuildingState *state; // edi
+void __cdecl UNIT_beast_enclosure_tick(Task *tsk) {
+  if(g_level_loading_lock)
+    return;
 
-  unit = (Unit *)task->ctx;
-  if ( !g_level_loading_lock )
-  {
-    if ( !unit )
-    {
-      unit = UNIT_create(task);
-      unit->task->message_handler = MSG_beast_enclosure;
-      UNIT_building_init(unit, 2, UNIT_mode_beast_enclosure_downgrade_production, UNIT_mode_beast_enclosure_on_complete);
-      state = (BuildingState *)unit->state;
-      state->same_building_count = 0;
-      TSK_broadcast_message(unit->task, TaskMessage_BuildingComplete, nullptr, TaskChannel_BeastEnclosure);
-      if ( !state->same_building_count )
-      {
-        TECHLVL_reset(&g_beast_enclosure_levels);
-      }
-      if ( !unit->entity->cplc_spawn_params )
-      {
-        UNIT_building_construction_start(unit, UNIT_mode_beast_enclosure_complete);
-        unit->mode(unit);
-        return;
-      }
-      unit->mode = UNIT_mode_beast_enclosure_complete;
-    }
-    unit->mode(unit);
+  Unit *u = tsk->ctx;
+  if(u) {
+    u->mode(u);
+    return;
   }
+
+  u = UNIT_create(tsk);
+  u->task->message_handler = MSG_beast_enclosure;
+  UNIT_building_init(
+    u,
+    2,
+    UNIT_mode_beast_enclosure_downgrade_production,
+    UNIT_mode_beast_enclosure_on_complete);
+
+  BuildingState *s = u->state;
+  s->same_building_count = 0;
+  TSK_broadcast_message(u->task, TaskMessage_BuildingComplete, nullptr, TaskChannel_BeastEnclosure);
+
+  if(!s->same_building_count)
+    TECHLVL_reset(&g_beast_enclosure_levels);
+
+  if(!u->entity->cplc_spawn_params) {
+    UNIT_building_construction_start(u, UNIT_mode_beast_enclosure_complete);
+  } else {
+    u->mode = UNIT_mode_beast_enclosure_complete;
+  }
+  u->mode(u);
 }
 
 //----- (00402250) --------------------------------------------------------
-void __fastcall UNIT_mode_beast_enclosure_on_complete(Unit *unit)
-{
-  int player_num; // eax
-  BuildingState *state; // ebx
-  SidebarFactoryProduction *v4; // esi
-  LevelId v5; // eax
+void __fastcall UNIT_mode_beast_enclosure_on_complete(Unit *u) {
+  int player_num = u->player_num;
+  if(player_num != g_player_num) {
+    if(0 == player_num)  // player 0 is AI?
+      u->mode_arrive = UNIT_mode_beast_enclosure_on_complete;
+    return;
+  }
 
-  player_num = unit->player_num;
-  state = (BuildingState *)unit->state;
-  if ( g_player_num == player_num )
-  {
-    if ( unit->mode_arrive == UNIT_mode_beast_enclosure_on_complete )
-    {
-      state->same_building_count = 0;
-      TSK_broadcast_message(unit->task, TaskMessage_BuildingComplete, nullptr, TaskChannel_BeastEnclosure);
-      if ( !state->same_building_count )
-      {
-        TECHLVL_reset(&g_beast_enclosure_levels);
-      }
-      unit->mode_arrive = nullptr;
-      unit->mode = UNIT_mode_building_idle_tick;
-    }
-    if ( !unit->entity->cplc_spawn_params )
-      UI_show_notification_box(nullptr, "Building completed");
-    v4 = UI_sidebar_prod_enable_category(unit, ProductionType_Vehicles);
-    state->prod = v4;
-    v5 = g_current_lvl_id;
-    if (~g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x8000)
-    {
-      UI_sidebar_prod_enable_unit(v4, UnitType_Mute_DireWolf, 2552);
-      v5 = g_current_lvl_id;
-    }
-    if ( (g_lvl_desc[v5].disabled_units_mask & 0x10000) == 0 )
-      UI_sidebar_prod_enable_unit(v4, UnitType_Mute_GiantScorpion, 2528);
-    ++g_beast_enclosure_levels.num_buildings_by_level[1];
+  BuildingState *s = u->state;
+  if(u->mode_arrive == UNIT_mode_beast_enclosure_on_complete) {
+    s->same_building_count = 0;
+    TSK_broadcast_message(u->task, TaskMessage_BuildingComplete, nullptr, TaskChannel_BeastEnclosure);
+    if(!s->same_building_count)
+      TECHLVL_reset(&g_beast_enclosure_levels);
+    u->mode_arrive = nullptr;
+    u->mode = UNIT_mode_building_idle_tick;
   }
-  else if ( !player_num )
-  {
-    unit->mode_arrive = UNIT_mode_beast_enclosure_on_complete;
+
+  if(!u->entity->cplc_spawn_params)
+    UI_show_notification_box(nullptr, "Building completed");
+
+  SidebarFactoryProduction *prod = UI_sidebar_prod_enable_category(u, ProductionType_Vehicles);
+  s->prod = prod;
+
+  if(!(g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_DIRE_WOLF)) {
+    UI_sidebar_prod_enable_unit(prod, UnitType_Mute_DireWolf, 2552);
   }
+
+  if(!(g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_GIANT_SCORPION))
+    UI_sidebar_prod_enable_unit(prod, UnitType_Mute_GiantScorpion, 2528);
+
+  ++g_beast_enclosure_levels.num_buildings_by_level[1];
 }
 
 //----- (00402350) --------------------------------------------------------
-void __fastcall UNIT_mode_beast_enclosure_downgrade_production(Unit *unit)
-{
-  BuildingState *state; // esi
-  int max_level; // edx
-  int upgrade_level; // eax
-  int *v4; // ecx
-  int v5; // edx
-  SidebarFactoryProduction *prod; // ecx
+void __fastcall UNIT_mode_beast_enclosure_downgrade_production(Unit *unit) {
+  BuildingState *state = unit->state;
+  if(unit->player_num != g_player_num)
+    return;
 
-  state = (BuildingState *)unit->state;
-  if ( g_player_num == unit->player_num )
-  {
-    max_level = g_beast_enclosure_levels.max_level;
-    --g_beast_enclosure_levels.num_buildings_by_level[state->upgrade_level];
-    upgrade_level = state->upgrade_level;
-    if ( upgrade_level == max_level && !g_beast_enclosure_levels.num_buildings_by_level[upgrade_level] )
-    {
-      if ( upgrade_level > 0 )
-      {
-        v4 = &g_beast_enclosure_levels.num_buildings_by_level[upgrade_level];
-        do
-        {
-          v5 = *--v4;
-          --upgrade_level;
-        }
-        while ( !v5 && upgrade_level > 0 );
-      }
-      g_beast_enclosure_levels.max_level = upgrade_level;
+  int level = state->upgrade_level;
+  bool was_max_level = level == g_beast_enclosure_levels.max_level;
+  --g_beast_enclosure_levels.num_buildings_by_level[level];
+
+  if(was_max_level && 0 == g_beast_enclosure_levels.num_buildings_by_level[level]) {
+    int next_max_level = level;
+    for(; next_max_level > 0; --next_max_level) {
+      if(g_beast_enclosure_levels.num_buildings_by_level[next_max_level] != 0) break;
     }
-    prod = state->prod;
-    if ( prod )
-    {
-      UI_sidebar_prod_disable(prod);
-      state->prod = nullptr;
-    }
+    g_beast_enclosure_levels.max_level = next_max_level;
+  }
+
+  if(state->prod) {
+    UI_sidebar_prod_disable(state->prod);
+    state->prod = nullptr;
   }
 }
 
 //----- (004023C0) --------------------------------------------------------
-void __fastcall UNIT_mode_beast_enclosure_on_death(Unit *unit)
-{
-  BuildingState *state; // esi
-  int max_level; // edx
-  int upgrade_level; // eax
-  int *v5; // ecx
-  int v6; // edx
-  SidebarFactoryProduction *prod; // ecx
-
-  state = (BuildingState *)unit->state;   // inlined downgrade production
-  if ( g_player_num == unit->player_num )
-  {
-    max_level = g_beast_enclosure_levels.max_level;
-    --g_beast_enclosure_levels.num_buildings_by_level[state->upgrade_level];
-    upgrade_level = state->upgrade_level;
-    if ( upgrade_level == max_level && !g_beast_enclosure_levels.num_buildings_by_level[upgrade_level] )
-    {
-      if ( upgrade_level > 0 )
-      {
-        v5 = &g_beast_enclosure_levels.num_buildings_by_level[upgrade_level];
-        do
-        {
-          v6 = *--v5;
-          --upgrade_level;
-        }
-        while ( !v6 && upgrade_level > 0 );
-      }
-      g_beast_enclosure_levels.max_level = upgrade_level;
-    }
-    prod = state->prod;
-    if ( prod )
-    {
-      UI_sidebar_prod_disable(prod);
-      state->prod = nullptr;
-    }
-  }
+void __fastcall UNIT_mode_beast_enclosure_on_death(Unit *unit) {
+  UNIT_mode_beast_enclosure_downgrade_production(unit);
   UINT_mode_building_exploding(unit);
 }
 
 //----- (00402440) --------------------------------------------------------
-void __fastcall UNIT_mode_beast_enclosure_complete(Unit *unit)
-{
-  Turret *turret; // eax
-
+void __fastcall UNIT_mode_beast_enclosure_complete(Unit *unit) {
   unit->mode_arrive = nullptr;
   UNIT_mode_beast_enclosure_on_complete(unit);
-  turret = unit->turret;
-  if ( turret )
+
+  Turret *turret = unit->turret;
+  if(turret)
     turret->entity->rn->flags &= ~RenderNode_Skip;
-  if ( g_player_num == unit->player_num && !unit->entity->cplc_spawn_params )
+
+  if(g_player_num == unit->player_num && !unit->entity->cplc_spawn_params)
     SOUND_play(SoundId_Mute_BuildingReady, 0, g_sfx_vol, 16, nullptr);
-  unit->task->message_handler = MSG_beast_enclosure;
+
   unit->task->channel = TaskChannel_BeastEnclosure;
-  if ( unit->entity->cplc_spawn_params )
+  unit->task->message_handler = MSG_beast_enclosure;
+  if (unit->entity->cplc_spawn_params)
     unit->mode = UNIT_mode_building_snap_to_grid;
   else
     unit->mode = UNIT_mode_building_idle_tick;
+
   UNIT_mode_building_idle_tick(unit);
 }
 
@@ -7115,24 +6971,21 @@ void __fastcall MSG_blacksmith_upgrades(
   TaskMessageType msg,
   void *payload)
 {
-  SidebarFactoryProduction *prod; // ecx
-  int v11; // eax
-
   Unit *unit = receiver->ctx;
   BuildingState *state = unit->state;
-  prod = state->prod;
+  SidebarFactoryProduction *prod = state->prod;
   state->upgrade_level = min(3, state->upgrade_level + 1);
-  if ( unit->player_num == g_player_num )
-  {
-    v11 = state->upgrade_level - 2;
-    if ( v11 )
-    {
-      if ( v11 == 1 )
+
+  if(unit->player_num == g_player_num) {
+    switch(state->upgrade_level) {
+      case 2:
+        UI_sidebar_prod_enable_unit(prod, UnitType_Mute_MonsterTruck, 2536);
+        break;
+      case 3:
         UI_sidebar_prod_enable_unit(prod, UnitType_Mute_Tanker, 2608);
-    }
-    else
-    {
-      UI_sidebar_prod_enable_unit(prod, UnitType_Mute_MonsterTruck, 2536);
+        break;
+      default:
+        break;
     }
   }
   UNIT_status_bar_update_tech(unit);
@@ -7140,143 +6993,88 @@ void __fastcall MSG_blacksmith_upgrades(
 }
 
 //----- (00402550) --------------------------------------------------------
-void __fastcall MSG_blacksmith(Task *receiver, Task *sender, TaskMessageType message, void *payload)
+void __fastcall MSG_blacksmith(Task *receiver, Task *sender, TaskMessageType msg, void *payload)
 {
-  Unit *unit; // esi
-  BuildingState *state; // eax
-  SidebarFactoryProduction *prod; // ecx
-  int v11; // eax
+  Unit *unit = receiver->ctx;
+  if (unit->destroyed) return;
 
-  unit = (Unit *)receiver->ctx;
-  if ( !unit->destroyed )
-  {
-    switch ( message )
-    {
-      case TaskMessage_ReceiveDamage:
-        UNIT_apply_damage_ex(unit, payload, UNIT_mode_blacksmith_on_death);
-        UNIT_building_status_bar_update_health(unit);
-        break;
-      case TaskMessage_Sabotage:
-        UNIT_sabotage(unit, payload, UNIT_mode_blacksmith_on_death);
-        break;
-      case TaskMessage_Destroy:
-        UNIT_on_destroy(unit, UNIT_mode_blacksmith_on_death);
-        break;
-      case TaskMessage_UnitReady:
-        UnitType type = (UnitType)(uintptr_t)payload;
-        if ( ENT_create_by_unit_type(
-               type,
-               unit->mobd_anchors.rally->x + ENT_X(unit->entity),
-               unit->mobd_anchors.rally->y + ENT_Y(unit->entity),
-               unit->player_num) )
-        {
-          if ( g_player_num == unit->player_num )
-          {
-            SOUND_play(SoundId_Mute_UnitReady, 0, g_sfx_vol, 16, nullptr);
-            UI_show_notification_box(nullptr, "Unit Ready");
-          }
-        }
-        break;
-      case TaskMessage_UpgradeComplete:
-        state = (BuildingState *)unit->state;// inlined  MessageHandler_BlacksmithUpgrades
-        prod = state->prod;
-        state->upgrade_level = min(3, state->upgrade_level + 1);
-        if ( unit->player_num == g_player_num )
-        {
-          v11 = state->upgrade_level - 2;
-          if ( v11 )
-          {
-            if ( v11 == 1 )
-              UI_sidebar_prod_enable_unit(prod, UnitType_Mute_Tanker, 2608);
-          }
-          else
-          {
-            UI_sidebar_prod_enable_unit(prod, UnitType_Mute_MonsterTruck, 2536);
-          }
-        }
-        UNIT_status_bar_update_tech(unit);
-        MSG_building_generic(receiver, sender, message, payload);
-        break;
-      default:
-        MSG_building_generic(receiver, sender, message, payload);
-        break;
-    }
+  switch (msg) {
+    case TaskMessage_ReceiveDamage:
+      UNIT_apply_damage_ex(unit, payload, UNIT_mode_blacksmith_on_death);
+      UNIT_building_status_bar_update_health(unit);
+      break;
+    case TaskMessage_Sabotage:
+      UNIT_sabotage(unit, payload, UNIT_mode_blacksmith_on_death);
+      break;
+    case TaskMessage_Destroy:
+      UNIT_on_destroy(unit, UNIT_mode_blacksmith_on_death);
+      break;
+    case TaskMessage_UnitReady:
+      UNIT_on_ready(unit, (UnitType)(uintptr_t)payload);
+      break;
+    case TaskMessage_UpgradeComplete:
+      MSG_blacksmith_upgrades(receiver, sender, msg, payload);
+      break;
+    default:
+      MSG_building_generic(receiver, sender, msg, payload);
+      break;
   }
 }
 
 //----- (00402710) --------------------------------------------------------
-void __cdecl UNIT_blacksmith_tick(Task *task) {
-  Unit *unit = task->ctx;
-  if ( !g_level_loading_lock )
-  {
-    if ( !unit )
-    {
-      unit = UNIT_create(task);
-      unit->task->message_handler = MSG_blacksmith;
-      UNIT_building_init(unit, 2, UNIT_mode_blacksmith_downgrade_production, UNIT_mode_blacksmith_on_complete);
-      if ( !unit->entity->cplc_spawn_params )
-      {
-        UNIT_building_construction_start(unit, UNIT_mode_blacksmith_complete);
-        unit->mode(unit);
-        return;
-      }
+void __cdecl UNIT_blacksmith_tick(Task *tsk) {
+  if(g_level_loading_lock) return;
+
+  Unit *unit = tsk->ctx;
+  if(!unit) {
+    unit = UNIT_create(tsk);
+    unit->task->message_handler = MSG_blacksmith;
+    UNIT_building_init(unit, 2, UNIT_mode_blacksmith_downgrade_production, UNIT_mode_blacksmith_on_complete);
+    if(!unit->entity->cplc_spawn_params) {
+      UNIT_building_construction_start(unit, UNIT_mode_blacksmith_complete);
+    } else {
       unit->mode = UNIT_mode_blacksmith_complete;
     }
-    unit->mode(unit);
   }
+
+  unit->mode(unit);
 }
 
 //----- (00402780) --------------------------------------------------------
-void __fastcall UNIT_mode_blacksmith_on_complete(Unit *unit)
-{
-  int player_num; // eax
-  BuildingState *state; // edi
-  SidebarFactoryProduction *v4; // esi
-  LevelId v5; // eax
+void __fastcall UNIT_mode_blacksmith_on_complete(Unit *unit) {
+  int player_num = unit->player_num;
+  if(player_num != g_player_num) {
+    if(0 == player_num)  // player 0 is AI?
+      unit->mode_arrive = UNIT_mode_blacksmith_on_complete;
+    return;
+  }
 
-  player_num = unit->player_num;
-  state = (BuildingState *)unit->state;
-  if ( g_player_num == player_num )
-  {
-    if ( unit->mode_arrive == UNIT_mode_blacksmith_on_complete )
-    {
-      unit->mode_arrive = nullptr;
-      unit->mode = UNIT_mode_building_idle_tick;
-    }
-    if ( !unit->entity->cplc_spawn_params )
-      UI_show_notification_box(nullptr, "Building completed");
-    v4 = UI_sidebar_prod_enable_category(unit, ProductionType_Vehicles);
-    state->prod = v4;
-    v5 = g_current_lvl_id;
-    if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x4000) == 0 )
-    {
-      UI_sidebar_prod_enable_unit(v4, UnitType_Mute_BikeAndSidecar, 2544);
-      v5 = g_current_lvl_id;
-    }
-    if ( (g_lvl_desc[v5].disabled_units_mask & 0x20000) == 0 )
-      UI_sidebar_prod_enable_unit(v4, UnitType_Mute_MobileDerrick, 2220);
+  if(unit->mode_arrive == UNIT_mode_blacksmith_on_complete) {
+    unit->mode_arrive = nullptr;
+    unit->mode = UNIT_mode_building_idle_tick;
   }
-  else if ( !player_num )
-  {
-    unit->mode_arrive = UNIT_mode_blacksmith_on_complete;
-  }
+  if(!unit->entity->cplc_spawn_params)
+    UI_show_notification_box(nullptr, "Building completed");
+
+  BuildingState *state = unit->state;
+  SidebarFactoryProduction *prod = UI_sidebar_prod_enable_category(unit, ProductionType_Vehicles);
+  state->prod = prod;
+
+  if(!(g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_BIKE_SIDECAR))
+    UI_sidebar_prod_enable_unit(prod, UnitType_Mute_BikeAndSidecar, 2544);
+  if(!(g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_MOBILE_DERRICK))
+    UI_sidebar_prod_enable_unit(prod, UnitType_Mute_MobileDerrick, 2220);
 }
 
 //----- (00402840) --------------------------------------------------------
-void __fastcall UNIT_mode_blacksmith_downgrade_production(Unit *unit)
-{
-  BuildingState *state; // esi
-  SidebarFactoryProduction *prod; // ecx
+void __fastcall UNIT_mode_blacksmith_downgrade_production(Unit *unit) {
+  BuildingState *state = unit->state;
+  if(unit->player_num != g_player_num)
+    return;
 
-  state = (BuildingState *)unit->state;
-  if ( g_player_num == unit->player_num )
-  {
-    prod = state->prod;
-    if ( prod )
-    {
-      UI_sidebar_prod_disable(prod);
-      state->prod = nullptr;
-    }
+  if(state->prod) {
+    UI_sidebar_prod_disable(state->prod);
+    state->prod = nullptr;
   }
 }
 
@@ -7982,7 +7780,6 @@ void __fastcall MSG_building_generic(
   Entity *entity; // ecx
   int v8; // edx
   int v9; // eax
-  Task *task; // [esp-Ch] [ebp-18h]
   int player_num; // [esp-4h] [ebp-10h]
 
   unit2 = nullptr;
@@ -8100,8 +7897,8 @@ void __cdecl SCHRAP_explosion_small_random_task(Task *task)
   SOUND_play_positional(entity, SoundId_Explosion, g_sfx_vol, 0);
   v2 = GAME_rand_sync("C:\\k\\Scripts\\Building.cpp", 372);
   x = entity->x;
-  ENT_X(entity) = (v2 & 0x3FFF) - 0x2000 + x;
-  ENT_Y(entity) += (GAME_rand_sync("C:\\k\\Scripts\\Building.cpp", 373) & 0x3FFF) - 0x2000;
+  ENT_X(entity) = (v2 & 0x3FFF) - WORLD_TILE + x;
+  ENT_Y(entity) += (GAME_rand_sync("C:\\k\\Scripts\\Building.cpp", 373) & 0x3FFF) - WORLD_TILE;
   ENT_anim_set(entity, 220);
   entity->z = 0x4000;
   TSK_yield(task, TaskWait_AnimCompletion, 0);
@@ -8113,13 +7910,15 @@ void __cdecl SCHRAP_explosion_small_random_task(Task *task)
 void __cdecl SCHRAP_explosion_big_delayed_task(Task *task)
 {
   Entity *entity; // esi
+  int v2; // ecx
 
   entity = task->entity;
   entity->collider = &g_null_collision;
   TSK_yield(task, TaskWait_Interval, 130);
   SOUND_play_positional(entity, SoundId_Explosion, g_sfx_vol, 0);
   ENT_anim_set(entity, 0);
-  ENT_Y(entity) += 2048;
+  v2 = entity->y + WORLD_QUARTER_TILE;
+  ENT_Y(entity) = v2;
   entity->anim_speed = 0x20000000;
   TSK_yield(task, TaskWait_AnimCompletion, 0);
   SCHRAP_explosion_release();
@@ -8177,12 +7976,12 @@ void __cdecl SCHRAP_explosion_building_task(Task *task)
   x = ENT_X(entity);
   y = ENT_Y(entity);
   v13 = y;
-  v10 = x - 0x2000;
-  v11 = x + 0x2000;
-  taska = x + 0x2000;
+  v10 = x - WORLD_TILE;
+  v11 = x + WORLD_TILE;
+  taska = x + WORLD_TILE;
   if ( v10 <= v11 )
   {
-    v12 = y + 0x2000;
+    v12 = y + WORLD_TILE;
     do
     {
       if ( y <= v12 )
@@ -8206,8 +8005,8 @@ void __cdecl SCHRAP_explosion_building_task(Task *task)
 
 //----- (004034B0) --------------------------------------------------------
 void __fastcall UNIT_mode_building_snap_to_grid(Unit *unit) {
-  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+  ENT_X(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->x + unit->entity->x)) - unit->mobd_anchors.grid->x + WORLD_HALF_TILE;
+  ENT_Y(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->y + unit->entity->y)) - unit->mobd_anchors.grid->y + WORLD_HALF_TILE;
   BOXD_building_claim_area(unit);
   unit->mode = UNIT_mode_building_idle_tick;
   TSK_yield(unit->task, TaskWait_Interval, 1);
@@ -8230,8 +8029,8 @@ void __fastcall UNIT_mode_building_wait_for_capture(Unit *unit)
 
 //----- (004035C0) --------------------------------------------------------
 void __fastcall UNIT_mode_building_snap_to_grid_neutal(Unit *unit) {
-  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+  ENT_X(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->x + unit->entity->x)) - unit->mobd_anchors.grid->x + WORLD_HALF_TILE;
+  ENT_Y(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->y + unit->entity->y)) - unit->mobd_anchors.grid->y + WORLD_HALF_TILE;
   BOXD_building_claim_area(unit);
   unit->mode = UNIT_mode_building_wait_for_capture;
   TSK_yield(unit->task, TaskWait_Interval, 1);
@@ -8585,7 +8384,7 @@ void __fastcall MSG_clanhall_upgrades(
   Unit *unit; // ebx
   BuildingState *state; // eax
   SidebarFactoryProduction *prod; // edi
-  int v9; // esi
+  bool reached_new_max; // esi
   LevelId v10; // eax
   LevelId v11; // eax
 
@@ -8595,53 +8394,46 @@ void __fastcall MSG_clanhall_upgrades(
   state->upgrade_level = min(5, state->upgrade_level + 1);
   if ( unit->player_num == g_player_num )
   {
-    v9 = 0;
-    g_clanhall_levels.num_buildings_by_level[state->upgrade_level - 1] -= 1;
-    g_clanhall_levels.num_buildings_by_level[state->upgrade_level] += 1;
-    if ( state->upgrade_level > g_clanhall_levels.max_level )
-    {
-      g_clanhall_levels.max_level = state->upgrade_level;
-      v9 = 1;
-    }
+    reached_new_max = TECHLVL_advance(&g_clanhall_levels, state->upgrade_level);
     switch ( state->upgrade_level )
     {
       case 2:
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x200000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_PYROMANIAC) == 0 )
           UI_sidebar_prod_enable_unit(prod, UnitType_Mute_Pyromaniac, 2800);
-        if ( v9 )
+        if ( reached_new_max )
         {
           MINI_enable();
-          if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x800) == 0 )
+          if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_MG_NEST) == 0 )
             UI_sidebar_prod_enable_unit(g_sidebar_tower_prod, UnitType_Mute_MachinegunNest, 2432);
         }
         break;
       case 3:
         v10 = g_current_lvl_id;
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x400000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_VANDAL) == 0 )
         {
           UI_sidebar_prod_enable_unit(prod, UnitType_Mute_Vandal, 2760);
           v10 = g_current_lvl_id;
         }
-        if ( (g_lvl_desc[v10].disabled_units_mask & 0x800000) == 0 )
+        if ( (g_lvl_desc[v10].disabled_units_mask & DISABLED_UNITS_MASK_RIOTER) == 0 )
         {
           UI_sidebar_prod_enable_unit(prod, UnitType_Mute_Rioter, 2784);
           v10 = g_current_lvl_id;
         }
-        if ( v9 && (g_lvl_desc[v10].disabled_units_mask & 0x200) == 0 )
+        if ( reached_new_max && (g_lvl_desc[v10].disabled_units_mask & DISABLED_UNITS_MASK_GRAPESHOT_TOWER) == 0 )
           UI_sidebar_prod_enable_unit(g_sidebar_tower_prod, UnitType_Mute_GrapeshotTower, 2424);
         break;
       case 4:
         v11 = g_current_lvl_id;
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x1000000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_BAZOOKA) == 0 )
         {
           UI_sidebar_prod_enable_unit(prod, UnitType_Mute_Bazooka, 2768);
           v11 = g_current_lvl_id;
         }
-        if ( v9 && (g_lvl_desc[v11].disabled_units_mask & 0x1000) == 0 )
+        if ( reached_new_max && (g_lvl_desc[v11].disabled_units_mask & DISABLED_UNITS_MASK_ROTARY_CANNON) == 0 )
           UI_sidebar_prod_enable_unit(g_sidebar_tower_prod, UnitType_Mute_RotaryCannon, 2408);
         break;
       case 5:
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x2000000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_CRAZY_HARRY) == 0 )
           UI_sidebar_prod_enable_unit(prod, UnitType_Mute_CrazyHarry, 2752);
         if ( UNIT_beast_enclosure_nukes_condition() )
           AIRSTRIKE_try_unlock();
@@ -8859,12 +8651,12 @@ void __fastcall UNIT_mode_clanhall_downgrade_production(Unit *unit)
     switch ( upgrade_level )
     {
       case 2:
-        if (g_lvl_desc[v5].disabled_units_mask & 0x800)
+        if (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_MG_NEST)
           break;
         v6 = UnitType_Mute_MachinegunNest;
         goto LABEL_16;
       case 3:
-        if (g_lvl_desc[v5].disabled_units_mask & 0x200)
+        if (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_GRAPESHOT_TOWER)
           break;
         v6 = UnitType_Mute_GrapeshotTower;
 LABEL_16:
@@ -8873,7 +8665,7 @@ LABEL_17:
         v5 = g_current_lvl_id;
         break;
       case 4:
-        if (~g_lvl_desc[v5].disabled_units_mask & 0x1000)
+        if (~g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_ROTARY_CANNON)
           UI_sidebar_disable_production(g_sidebar_tower_prod, UnitType_Mute_RotaryCannon);
         AIRCRAFT_revoke_prod_option();
         goto LABEL_17;
@@ -9180,7 +8972,7 @@ BOOL __fastcall BOXD_collide_floor(
   if ( mover_aabb->min_y >= min_y )
     return 0;
   max_y = mover_aabb->max_y;
-  if ( max_y >= obstacle_aabb->max_y || max_y >= min_y + 2048 )
+  if ( max_y >= obstacle_aabb->max_y || max_y >= min_y + WORLD_QUARTER_TILE )
     return 0;
   task = mover->task;
   mover->y = min_y;
@@ -9229,7 +9021,7 @@ BOOL __fastcall BOXD_collide_ramp_ltr(
   if ( x < min_x )
     return 0;
   max_y = obstacle_aabb->max_y;
-  if ( mover_aabb->max_y > max_y + 2048 )
+  if ( mover_aabb->max_y > max_y + WORLD_QUARTER_TILE )
     return 0;
   v9 = max_y + (x - min_x) * (obstacle_aabb->min_y - max_y) / (max_x - min_x);
   if ( v9 >= mover->y )
@@ -9272,7 +9064,7 @@ BOOL __fastcall BOXD_collide_ramp_rtl(
   if ( x < min_x )
     return 0;
   max_y = obstacle_aabb->max_y;
-  if ( mover_aabb->max_y > max_y + 2048 )
+  if ( mover_aabb->max_y > max_y + WORLD_QUARTER_TILE )
     return 0;
   v9 = max_y + (x - max_x) * (obstacle_aabb->min_y - max_y) / (min_x - max_x);
   if ( v9 >= mover->y )
@@ -9307,7 +9099,7 @@ BOOL __fastcall BOXD_collide_slope_left(
 
   min_y = mover_aabb->min_y;
   v6 = obstacle_aabb->min_y;
-  if ( min_y < v6 - 2048 )
+  if ( min_y < v6 - WORLD_QUARTER_TILE )
     return 0;
   min_x = mover_aabb->min_x;
   v9 = obstacle_aabb->min_x;
@@ -9361,7 +9153,7 @@ BOOL __fastcall BOXD_collide_slope_right(
 
   min_y = mover_aabb->min_y;
   v6 = obstacle_aabb->min_y;
-  if ( min_y < v6 - 2048 )
+  if ( min_y < v6 - WORLD_QUARTER_TILE )
     return 0;
   max_x = mover_aabb->max_x;
   v9 = obstacle_aabb->max_x;
@@ -10040,14 +9832,14 @@ void __fastcall UNIT_tanker_convoy_advance_to_next_waypoint(Unit *unit)
       v4 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v4 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    v5 = v4 + (state->x & 0xFFFFE000);
+    v5 = v4 + (GAME_world_tile_floor(state->x));
     v6 = unit->stats;
     unit->order_target_x = v5;
     if ( v6->is_infantry )
       v7 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       v7 = v6->size != UnitSize_Regular ? 7424 : 4096;
-    v8 = state->y & 0xFFFFE000;
+    v8 = GAME_world_tile_floor(state->y);
     unit->locked_target = nullptr;
     unit->mode_return = UNIT_mode_build_path;
     unit->order_target_y = v7 + v8;
@@ -10251,7 +10043,7 @@ void __cdecl UNIT_tanker_convoy_tick(Task *task)
         v7 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
       else
         v7 = stats->size != UnitSize_Regular ? 7424 : 4096;
-      v8 = v7 + (v5->x & 0xFFFFE000);
+      v8 = v7 + (GAME_world_tile_floor(v5->x));
       v9 = unit->stats;
       unit->order_target_x = v8;
       if ( v9->is_infantry )
@@ -10261,7 +10053,7 @@ void __cdecl UNIT_tanker_convoy_tick(Task *task)
       y = v5->y;
       unit->locked_target = nullptr;
       unit->mode_arrive = nullptr;
-      v12 = v10 + (y & 0xFFFFE000);
+      v12 = v10 + (GAME_world_tile_floor(y));
       orientation = unit->orientation;
       unit->order_target_y = v12;
       ENT_anim_set_frame(unit->entity, unit->stats->mobd_lookup_offset_idle, g_angle_to_orientation[orientation]);
@@ -10672,7 +10464,7 @@ bool CPLC_build() {
     g_mapd_camera.y = cam->y;
     g_mapd_camera.z = cam->z;
 
-    g_cplc_spawn_x = g_mapd_camera.x - 0x3FFF; // 0x4000 = 0.25 tiles; 0x3FFF = 0.25-epsilon
+    g_cplc_spawn_x = g_mapd_camera.x - 0x3FFF; // (2 * WORLD_TILE) = 0.25 tiles; 0x3FFF = 0.25-epsilon
     g_cplc_spawn_y = g_mapd_camera.y - 0x3FFF;
 
     return true;
@@ -11365,13 +11157,13 @@ void __fastcall UNIT_mobile_derrick_init(Unit *unit)
       v4 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v4 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    unit->entity->x = v4 + (unit->entity->x & 0xFFFFE000);
+    unit->entity->x = v4 + (GAME_world_tile_floor(unit->entity->x));
     v5 = unit->stats;
     if ( v5->is_infantry )
       v6 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       v6 = v5->size != UnitSize_Regular ? 7424 : 4096;
-    unit->entity->y = v6 + (unit->entity->y & 0xFFFFE000);
+    unit->entity->y = v6 + (GAME_world_tile_floor(unit->entity->y));
     v7 = unit->stats;
     unit->tile_position = UnitPosition_Slot0;
     if ( v7->is_infantry )
@@ -11385,8 +11177,8 @@ void __fastcall UNIT_mobile_derrick_init(Unit *unit)
       v10 = v9->size != UnitSize_Regular ? 7424 : 4096;
     v11 = BOXD_place_unit_world_coords(
             unit,
-            v10 + (unit->entity->x & 0xFFFFE000),
-            v8 + (unit->entity->y & 0xFFFFE000),
+            v10 + (GAME_world_tile_floor(unit->entity->x)),
+            v8 + (GAME_world_tile_floor(unit->entity->y)),
             UnitPosition_Slot0);
     if ( v11 != UnitTilePosition_Invalid )
     {
@@ -11399,8 +11191,8 @@ void __fastcall UNIT_mobile_derrick_init(Unit *unit)
       unit->order_target_y = order_next_waypoint_y;
       unit->tile_position = v11;
       v14 = unit->task;
-      unit->map_x = entity->x >> 13;
-      unit->map_y = entity->y >> 13;
+      unit->map_x = GAME_world_to_tile(entity->x);
+      unit->map_y = GAME_world_to_tile(entity->y);
       v14->message_handler = MSG_mobile_derrick;
       UNIT_mode_idle_init(unit);
       return;
@@ -11418,7 +11210,7 @@ LABEL_17:
     v16 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v16 = v15->size != UnitSize_Regular ? 7424 : 4096;
-  v17 = v16 + (unit->map_x << 13);
+  v17 = v16 + (GAME_tile_to_world(unit->map_x));
   v18 = unit->stats;
   unit->order_next_waypoint_x = v17;
   if ( v18->is_infantry )
@@ -11426,7 +11218,7 @@ LABEL_17:
   else
     v19 = v18->size != UnitSize_Regular ? 7424 : 4096;
   order_next_waypoint_x = unit->order_next_waypoint_x;
-  v21 = (unit->map_y << 13) + v19;
+  v21 = (GAME_tile_to_world(unit->map_y)) + v19;
   v22 = unit->task;
   unit->order_next_waypoint_y = v21;
   unit->order = UnitOrder_Move;
@@ -11514,8 +11306,8 @@ LABEL_7:
     while ( 1 )
     {
       v4 = v2->entity;
-      if ( ((x ^ v4->x) & 0xFFFFE000) == 0
-        && ((y ^ v4->y) & 0xFFFFE000) == 0
+      if ( (GAME_world_tile_floor(x ^ v4->x)) == 0
+        && (GAME_world_tile_floor(y ^ v4->y)) == 0
         && (v4->rn->flags & 0x40000000) == 0 )
       {
         break;
@@ -11555,7 +11347,7 @@ void __fastcall UNIT_mode_mobile_derrick_deploy(Unit *unit)
   entity = unit->entity;
   player_num = unit->player_num;
   if ( unit->type == UnitType_Surv_MobileDerrick )
-    v3 = ENT_create_by_unit_type(UnitType_Surv_Drillrig, entity->x, entity->y - 4096, player_num);
+    v3 = ENT_create_by_unit_type(UnitType_Surv_Drillrig, entity->x, entity->y - WORLD_HALF_TILE, player_num);
   else
     v3 = ENT_create_by_unit_type(UnitType_Mute_Drillrig, entity->x, entity->y, player_num);
   if ( v3 )
@@ -11628,8 +11420,8 @@ OilPatch *__fastcall OIL_find_patch_at_tile(int tile_x, int tile_y)
   while ( 1 )
   {
     entity = i->entity;
-    if ( ((tile_x ^ entity->x) & 0xFFFFE000) == 0
-      && ((tile_y ^ entity->y) & 0xFFFFE000) == 0
+    if ( (GAME_world_tile_floor(tile_x ^ entity->x)) == 0
+      && (GAME_world_tile_floor(tile_y ^ entity->y)) == 0
       && (entity->rn->flags & RenderNode_Skip) == 0 )
     {
       break;
@@ -11731,9 +11523,9 @@ void __cdecl UNIT_oil_patch_tick(Task *task)
   entity->rn->transform = (RenderTransform)REND_transform_terrain_detail;
   ENT_anim_set(entity, 0);
   cplc_meta = entity->cplc_meta;
-  v3 = entity->y & 0xFFFFE000;
-  ENT_X(entity) = (entity->x & 0xFFFFE000) + 4096;
-  ENT_Y(entity) = v3 + 4096;
+  v3 = GAME_world_tile_floor(entity->y);
+  ENT_X(entity) = (GAME_world_tile_floor(entity->x)) + WORLD_HALF_TILE;
+  ENT_Y(entity) = v3 + WORLD_HALF_TILE;
   if ( cplc_meta )
   {
     patch = g_oil_patch_free_head;
@@ -11756,7 +11548,7 @@ void __cdecl UNIT_oil_patch_tick(Task *task)
     patch = (OilPatch *)task->ctx;
   }
   y = entity->y;
-  p_flags2 = &g_terrain[(ENT_X(entity) >> 13) + g_map_num_tiles_x * (ENT_Y(entity) >> 13)].flags2;
+  p_flags2 = &g_terrain[(GAME_world_to_tile(ENT_X(entity))) + g_map_num_tiles_x * (GAME_world_to_tile(ENT_Y(entity)))].flags2;
   *p_flags2 |= TerrainTileFlags2_OilPatch;
   TSK_yield(task, TaskWait_OilDepleted, 0);
   entity->rn->flags |= RenderNode_Skip;
@@ -11795,8 +11587,8 @@ void __fastcall MSG_prison(Task *receiver, Task *sender, TaskMessageType message
 
 //----- (00407300) --------------------------------------------------------
 void __fastcall UNIT_mode_prison_snap_to_grid(Unit *unit) {
-  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+  ENT_X(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->x + unit->entity->x)) - unit->mobd_anchors.grid->x + WORLD_HALF_TILE;
+  ENT_Y(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->y + unit->entity->y)) - unit->mobd_anchors.grid->y + WORLD_HALF_TILE;
   BOXD_building_claim_area(unit);
   unit->mode = (UnitMode)TURRET_mode_null;
   TSK_yield(unit->task, TaskWait_Interval, 1);
@@ -12139,8 +11931,8 @@ void __fastcall UNIT_mode_tech_bunker_sleep_until_activated_surv_18(Unit *unit)
 //----- (00407A90) --------------------------------------------------------
 void __fastcall UNIT_mode_tech_bunker_snap_to_grid(Unit *unit)
 {
-  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+  ENT_X(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->x + unit->entity->x)) - unit->mobd_anchors.grid->x + WORLD_HALF_TILE;
+  ENT_Y(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->y + unit->entity->y)) - unit->mobd_anchors.grid->y + WORLD_HALF_TILE;
   BOXD_building_claim_area(unit);
   if ( g_current_lvl_id == LevelId_Surv_18 )
     unit->mode = UNIT_mode_tech_bunker_sleep_until_activated_surv_18;
@@ -12301,8 +12093,8 @@ void __fastcall MSG_hut(Task *receiver, Task *sender, TaskMessageType message, v
 
 //----- (00407E70) --------------------------------------------------------
 void __fastcall UNIT_mode_hut_snap_to_grid(Unit *unit) {
-  ENT_X(unit->entity) = ((unit->mobd_anchors.grid->x + unit->entity->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  ENT_Y(unit->entity) = ((unit->mobd_anchors.grid->y + unit->entity->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+  ENT_X(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->x + unit->entity->x)) - unit->mobd_anchors.grid->x + WORLD_HALF_TILE;
+  ENT_Y(unit->entity) = (GAME_world_tile_floor(unit->mobd_anchors.grid->y + unit->entity->y)) - unit->mobd_anchors.grid->y + WORLD_HALF_TILE;
   BOXD_building_claim_area(unit);
   unit->mode = UNIT_mode_hut_idle;
   TSK_yield(unit->task, TaskWait_Interval, 1);
@@ -12412,8 +12204,8 @@ void __cdecl UNIT_drillrig_tick(Task *task)
       patch = OIL_find_nearest_patch(ENT_X(unit->entity), ENT_Y(unit->entity));
       if ( patch )
       {
-        unit->entity->x = (patch->entity->x & 0xFFFFE000) + 0x1000;
-        unit->entity->y = (patch->entity->y & 0xFFFFE000) + 0x1000;
+        unit->entity->x = (GAME_world_tile_floor(patch->entity->x)) + WORLD_HALF_TILE;
+        unit->entity->y = (GAME_world_tile_floor(patch->entity->y)) + WORLD_HALF_TILE;
       }
       unit->_u1.oil_patch = patch;
 
@@ -12482,10 +12274,8 @@ void __fastcall UNIT_mode_drillrig_adjust_to_oil_patch_position(Unit *unit)
     nearest_patch = OIL_find_nearest_patch(ENT_X(unit->entity), ENT_Y(unit->entity));
     if ( nearest_patch )
     {
-      // TODO: Magic numbers 0xFFFFE000, 0x1000 repeated across drillrig code. Extract as constants.
-      // Aligns entity to grid: mask out low 13 bits, add 0x1000 (half tile = 4096)
-      unit->entity->x = (nearest_patch->entity->x & 0xFFFFE000) + 0x1000;
-      unit->entity->y = (nearest_patch->entity->y & 0xFFFFE000) + 0x1000;
+      unit->entity->x = (GAME_world_tile_floor(nearest_patch->entity->x)) + WORLD_HALF_TILE;
+      unit->entity->y = (GAME_world_tile_floor(nearest_patch->entity->y)) + WORLD_HALF_TILE;
     }
   }
   turret = unit->turret;
@@ -12562,26 +12352,20 @@ BOOL FADE_is_pending()
 }
 
 //----- (00408410) --------------------------------------------------------
-void PAL_dim_level_pal()
-{
-  PaletteEntry *v0; // eax
-  int i; // ecx
-  int j; // ecx
-  unsigned __int8 r; // dl
-
-  v0 = g_level_palette;
+void PAL_dim_level_pal() {
   g_is_level_pal_dimmed = 1;
-  for ( i = 0; i < 960; ++i )
-  {
-    *(&g_working_pal[0].r + i) = v0->r >> 1;
-    v0 = (PaletteEntry *)((char *)v0 + 1);
+
+  // Dim colors 0-239: halve each channel
+  for(int i = 0; i < 240; ++i) {
+    g_working_pal[i].r = g_level_palette[i].r >> 1;
+    g_working_pal[i].g = g_level_palette[i].g >> 1;
+    g_working_pal[i].b = g_level_palette[i].b >> 1;
+    g_working_pal[i].flags = g_level_palette[i].flags;
   }
-  for ( j = 960; j < 1024; ++j )
-  {
-    r = v0->r;
-    v0 = (PaletteEntry *)((char *)v0 + 1);
-    *(&g_working_pal[0].r + j) = r;
-  }
+
+  // Preserve colors 240-255: copy as-is
+  memcpy(&g_working_pal[240], &g_level_palette[240], 16 * sizeof(PaletteEntry));
+
   PAL_apply(g_working_pal);
 }
 
@@ -13932,7 +13716,7 @@ LABEL_26:
           j->unit_type = ai->last_unit_produced;
           cost = p->remaining_cost;
           j->base_cost = p->remaining_cost;
-          base_bandwidth = (cost << 8) / prod_time;
+          base_bandwidth = RATE_FP(cost, prod_time);
           unit = j->unit;
           unit_type = j->unit_type;
           j->cost_per_tick = base_bandwidth;
@@ -13980,7 +13764,7 @@ LABEL_26:
               && ai->attacker_count < ai->max_units )
             {
               k->unit_type = v13->unit_type;
-              v37 = (v34 << 8) / v163;
+              v37 = RATE_FP(v34, v163);
               v38 = (void *)k->unit_type;
               k->remaining_cost = v34;
               v159 = v38;
@@ -14038,7 +13822,7 @@ LABEL_79:
       build_head->unit_type = ctx2;
       build_head->base_cost = v26;
       build_head->remaining_cost = v26;
-      v28 = (v26 << 8) / v162;
+      v28 = RATE_FP(v26, v162);
       v158 = (void *)build_head->unit_type;
       build_head->cost_per_tick = v28;
       PROD_enqueue_one(ai->cash, &build_head->remaining_cost, v28, build_head->unit->task, v158, -1);
@@ -14090,7 +13874,7 @@ LABEL_97:
         construction_remaining_cost = ai->construction_remaining_cost;
         if ( construction_remaining_cost > 0 )
         {
-          v51 = (construction_remaining_cost << 8) / ai->construction_base_cost;
+          v51 = PERCENT_256(construction_remaining_cost, ai->construction_base_cost);
           if ( v51 > 85 )
           {
             if ( v51 <= 171 && ai->construction_state < 1 )
@@ -14751,8 +14535,8 @@ BOOL __fastcall AI_find_building_placement_site(AiBuildingPlacementNode *node)
   v5 = unit_y + grid_anchor_y;
   type = g_building_blueprints[0].type;
   v7 = g_building_blueprints;
-  v8 = v2 >> 13;
-  v9 = v5 >> 13;
+  v8 = GAME_world_to_tile(v2);
+  v9 = GAME_world_to_tile(v5);
   map_x = v8;
   v46 = g_building_blueprints;
   if ( g_building_blueprints[0].type == unit_type )
@@ -14785,9 +14569,9 @@ LABEL_21:
             if ( map_xa >= v42 )
             {
 LABEL_37:
-              v18 = (v16 << 13) - node->grid_anchor_y;
-              node->unit_x = (v15 << 13) - node->grid_anchor_x + 4096;
-              node->unit_y = v18 + 4096;
+              v18 = (GAME_tile_to_world(v16)) - node->grid_anchor_y;
+              node->unit_x = (GAME_tile_to_world(v15)) - node->grid_anchor_x + WORLD_HALF_TILE;
+              node->unit_y = v18 + WORLD_HALF_TILE;
               return 1;
             }
             while ( 1 )
@@ -14827,9 +14611,9 @@ LABEL_32:
           if ( v21 >= v23 )
           {
 LABEL_54:
-            v26 = (v21 << 13) - node->grid_anchor_y;
-            node->unit_x = (v22 << 13) - node->grid_anchor_x + 4096;
-            node->unit_y = v26 + 4096;
+            v26 = (GAME_tile_to_world(v21)) - node->grid_anchor_y;
+            node->unit_x = (GAME_tile_to_world(v22)) - node->grid_anchor_x + WORLD_HALF_TILE;
+            node->unit_y = v26 + WORLD_HALF_TILE;
             return 1;
           }
 LABEL_44:
@@ -14875,9 +14659,9 @@ LABEL_49:
               v29 = v47 + 1;
             }
           }
-          v31 = (v27 << 13) - node->grid_anchor_y;
-          node->unit_x = (v29 << 13) - node->grid_anchor_x + 4096;
-          node->unit_y = v31 + 4096;
+          v31 = (GAME_tile_to_world(v27)) - node->grid_anchor_y;
+          node->unit_x = (GAME_tile_to_world(v29)) - node->grid_anchor_x + WORLD_HALF_TILE;
+          node->unit_y = v31 + WORLD_HALF_TILE;
           return 1;
         }
 LABEL_68:
@@ -14894,9 +14678,9 @@ LABEL_68:
           if ( v34 >= v32 )
           {
 LABEL_87:
-            v37 = (v34 << 13) - node->grid_anchor_y;
-            node->unit_x = (v33 << 13) - node->grid_anchor_x + 4096;
-            node->unit_y = v37 + 4096;
+            v37 = (GAME_tile_to_world(v34)) - node->grid_anchor_y;
+            node->unit_x = (GAME_tile_to_world(v33)) - node->grid_anchor_x + WORLD_HALF_TILE;
+            node->unit_y = v37 + WORLD_HALF_TILE;
             return 1;
           }
           while ( 1 )
@@ -15329,11 +15113,11 @@ BOOL __fastcall AI_find_nuke_target(AiController *ai, UnitType type, int *out_x,
   AiEnemyNode *p_enemy_head; // [esp+28h] [ebp-4h]
 
   v37 = 0;
-  v4 = g_map_height / 0x4000;
-  v5 = g_map_width / 0x4000;
-  v32 = g_map_width / 0x4000;
-  v33 = g_map_height / 0x4000;
-  v6 = 4 * g_map_width / 0x4000 * (g_map_height / 0x4000);
+  v4 = g_map_height / (2 * WORLD_TILE);
+  v5 = g_map_width / (2 * WORLD_TILE);
+  v32 = g_map_width / (2 * WORLD_TILE);
+  v33 = g_map_height / (2 * WORLD_TILE);
+  v6 = 4 * g_map_width / (2 * WORLD_TILE) * (g_map_height / (2 * WORLD_TILE));
   v7 = (int *)malloc(v6);
   Block = v7;
   if ( v7 )
@@ -15349,12 +15133,12 @@ BOOL __fastcall AI_find_nuke_target(AiController *ai, UnitType type, int *out_x,
         entity = enemy_head->unit->entity;
         x = entity->x;
         v11 = enemy_head->unit->entity;
-        v12 = (x - 0x2000) / 0x4000 - 1;
+        v12 = (x - WORLD_TILE) / (2 * WORLD_TILE) - 1;
         v13 = ENT_X(v11);
         y = ENT_Y(v11);
-        v15 = (v13 + 0x2000) / 0x4000 + 1;
-        v16 = (y - 0x2000) / 0x4000 - 1;
-        v17 = (y + 0x2000) / 0x4000 + 1;
+        v15 = (v13 + WORLD_TILE) / (2 * WORLD_TILE) + 1;
+        v16 = (y - WORLD_TILE) / (2 * WORLD_TILE) - 1;
+        v17 = (y + WORLD_TILE) / (2 * WORLD_TILE) + 1;
         if ( v12 < 0 )
           v12 = 0;
         if ( v15 >= v32 )
@@ -16908,9 +16692,9 @@ LABEL_9:
       result = dy <= 0 ? 32 : 96;
     }
   }
-  v15 = ((618 * dx_) >> 8) - dy_;
+  v15 = MUL_FP(618, dx_) - dy_;
   if ( v15 <= 0 )
-    v15 = dy_ - ((618 * dx_) >> 8);
+    v15 = dy_ - MUL_FP(618, dx_);
   if ( v15 < distance_tolerance )
   {
     if ( dx <= 0 )
@@ -16924,7 +16708,7 @@ LABEL_9:
       result = dy <= 0 ? 16 : 112;
     }
   }
-  v17 = (618 * dy_) >> 8;
+  v17 = MUL_FP(618, dy_);
   if ( dx_ - v17 <= 0 )
     v18 = v17 - dx_;
   else
@@ -16947,10 +16731,9 @@ LABEL_9:
 
 //----- (0040D860) --------------------------------------------------------
 BOOL __fastcall ENT_is_in_radius(Entity *a, Entity *b, int radius) {
-  return (
-    (ENT_Y(b) - ENT_Y(a)) >> 8) * ((ENT_Y(b) - ENT_Y(a)) >> 8)
-    + ((ENT_X(b) - ENT_X(a)) >> 8) * ((ENT_X(b) - ENT_X(a)) >> 8
-  ) <= radius * radius;
+  int dx = GAME_world_to_px(ENT_X(b) - ENT_X(a));
+  int dy = GAME_world_to_px(ENT_Y(b) - ENT_Y(a));
+  return dx * dx + dy * dy <= radius * radius;
 }
 
 //----- (0040D8B0) --------------------------------------------------------
@@ -16988,8 +16771,8 @@ void __fastcall ENT_apply_aoe_damage(Entity *entity, int radius)
   v2 = radius;
   v4 = (radius >> 4) + 1;
   v5 = radius >> 5;
-  v6 = (entity->x >> 13) - v5;
-  v7 = (entity->y >> 13) - v5;
+  v6 = (GAME_world_to_tile(entity->x)) - v5;
+  v7 = (GAME_world_to_tile(entity->y)) - v5;
   v25 = v2;
   v21 = 0;
   v24 = v4;
@@ -17034,9 +16817,9 @@ void __fastcall ENT_apply_aoe_damage(Entity *entity, int radius)
             {
               v14 = (*units)->entity;
               x = entity->x;
-              v16 = (ENT_Y(v14) - ENT_Y(entity)) >> 8;
+              v16 = GAME_world_to_px(ENT_Y(v14) - ENT_Y(entity));
               if(ENT_is_in_radius(entity, v14, v2))
-              //if ( v16 * v16 + ((ENT_X(v14) - ENT_X(entity)) >> 8) * ((ENT_X(v14) - ENT_X(entity)) >> 8) <= v2 * v2 )
+              //if ( v16 * v16 + (GAME_world_to_px(ENT_X(v14) - ENT_X(entity))) * (GAME_world_to_px(ENT_X(v14) - ENT_X(entity))) <= v2 * v2 )
               {
                 v17 = *units;
                 if ( !(*units)->destroyed )
@@ -17113,8 +16896,8 @@ BoxdPathingClassification __fastcall BOXD_update_tile_on_move(Unit *unit)
   entity = unit->entity;
   if ( unit->stats->size != UnitSize_XL )
   {
-    v13 = (entity->x_speed + entity->x) >> 13;
-    v14 = (entity->y + entity->y_speed) >> 13;
+    v13 = GAME_world_to_tile(entity->x_speed + entity->x);
+    v14 = GAME_world_to_tile(entity->y + entity->y_speed);
     if ( v13 != unit->map_x || v14 != unit->map_y )
     {
       v15 = BOXD_place_unit(unit, v13, v14, UnitPosition_Slot1);
@@ -17129,12 +16912,12 @@ BoxdPathingClassification __fastcall BOXD_update_tile_on_move(Unit *unit)
   }
   y = entity->y;
   x = entity->x;
-  v5 = x - 4096;
-  v6 = x + 4096;
-  v7 = (y - 4096) >> 13;
-  v8 = (y + 4096) >> 13;
-  v9 = v5 >> 13;
-  v10 = v6 >> 13;
+  v5 = x - WORLD_HALF_TILE;
+  v6 = x + WORLD_HALF_TILE;
+  v7 = GAME_world_to_tile(y - WORLD_HALF_TILE);
+  v8 = GAME_world_to_tile(y + WORLD_HALF_TILE);
+  v9 = GAME_world_to_tile(v5);
+  v10 = GAME_world_to_tile(v6);
   v17 = v9;
   for ( i = v8; v7 <= v8; ++v7 )
   {
@@ -17192,8 +16975,8 @@ BOOL __fastcall BOXD_can_deploy_base(Unit *unit)
 LABEL_4:
     entity = unit->entity;
     grid = unit->mobd_anchors.grid;
-    tile_x = (grid->x + entity->x) >> 13;
-    tile_y = (grid->y + entity->y) >> 13;
+    tile_x = GAME_world_to_tile(grid->x + entity->x);
+    tile_y = GAME_world_to_tile(grid->y + entity->y);
     if ( tile_x >= 0 && tile_y >= 0 )
     {
       v8 = v2->footprint_width + tile_x;
@@ -17283,10 +17066,10 @@ LABEL_4:
     v6 = grid->y + entity->y;
     v7 = grid->x + entity->x;
     v8 = UnitPosition_Slot0;
-    v9 = v6 >> 13;
+    v9 = GAME_world_to_tile(v6);
     v16 = v9;
     v10 = v9;
-    for ( i = v7 >> 13; v10 < v3->footprint_height + v9; ++v10 )
+    for ( i = GAME_world_to_tile(v7); v10 < v3->footprint_height + v9; ++v10 )
     {
       v12 = i;
       if ( i < v3->footprint_width + i )
@@ -17347,10 +17130,10 @@ LABEL_4:
     entity = unit->entity;
     grid = unit->mobd_anchors.grid;
     v6 = grid->x + entity->x;
-    v7 = (grid->y + entity->y) >> 13;
+    v7 = GAME_world_to_tile(grid->y + entity->y);
     v13 = v7;
     v8 = v7;
-    for ( i = v6 >> 13; v8 < v3->footprint_height + v7; ++v8 )
+    for ( i = GAME_world_to_tile(v6); v8 < v3->footprint_height + v7; ++v8 )
     {
       v10 = i;
       if ( i < v3->footprint_width + i )
@@ -17387,7 +17170,7 @@ UnitTilePosition __fastcall BOXD_place_unit_world_coords(
   if ( unit->stats->size == UnitSize_XL )
     return BOXD_place_unit_xl(unit, x, y, pos) != Boxd_MovementSucceeded ? UnitTilePosition_Invalid : 0;// Slot0
   else
-    return BOXD_place_unit(unit, x >> 13, y >> 13, pos);
+    return BOXD_place_unit(unit, GAME_world_to_tile(x), GAME_world_to_tile(y), pos);
 }
 
 //----- (0040DEC0) --------------------------------------------------------
@@ -17410,12 +17193,12 @@ void __fastcall BOXD_remove_unit(Unit *unit, int map_x, int map_y, UnitTilePosit
     entity = unit->entity;
     y = entity->y;
     x = entity->x;
-    v8 = x - 4096;
-    v9 = x + 4096;
-    v10 = (y - 4096) >> 13;
-    v11 = (y + 4096) >> 13;
-    v12 = v8 >> 13;
-    v13 = v9 >> 13;
+    v8 = x - WORLD_HALF_TILE;
+    v9 = x + WORLD_HALF_TILE;
+    v10 = GAME_world_to_tile(y - WORLD_HALF_TILE);
+    v11 = GAME_world_to_tile(y + WORLD_HALF_TILE);
+    v12 = GAME_world_to_tile(v8);
+    v13 = GAME_world_to_tile(v9);
     a4a = v12;
     for ( a3a = v11; v10 <= v11; ++v10 )
     {
@@ -17457,10 +17240,10 @@ void __fastcall BOXD_pathing_set_friendly_mask(Unit *unit, BOOL is_actively_movi
     entity = unit->entity;
     x = entity->x;
     y = entity->y;
-    v6 = (y - 4096) >> 13;
-    v7 = (y + 4096) >> 13;
-    v8 = (x - 4096) >> 13;
-    v9 = (x + 4096) >> 13;
+    v6 = GAME_world_to_tile(y - WORLD_HALF_TILE);
+    v7 = GAME_world_to_tile(y + WORLD_HALF_TILE);
+    v8 = GAME_world_to_tile(x - WORLD_HALF_TILE);
+    v9 = GAME_world_to_tile(x + WORLD_HALF_TILE);
     v11 = v8;
     for ( i = v7; v6 <= v7; ++v6 )
     {
@@ -17513,7 +17296,7 @@ BoxdPathingClassification __fastcall BOXD_classify_area_for_pathing(Unit *unit, 
   v23 = nullptr;
   if ( unit->stats->size != UnitSize_XL )
   {
-    v5 = &g_terrain[(scan_x >> 13) + g_map_num_tiles_x * (scan_y >> 13)];
+    v5 = &g_terrain[(GAME_world_to_tile(scan_x)) + g_map_num_tiles_x * (GAME_world_to_tile(scan_y))];
     result = BOXD_classify_tile_simple(unit, v5);
     if ( result == Boxd_PartiallyOccupied || result == Boxd_FullyOccupied )
     {
@@ -17528,16 +17311,16 @@ BoxdPathingClassification __fastcall BOXD_classify_area_for_pathing(Unit *unit, 
     }
     return result;
   }
-  v9 = scan_x - 4096;
-  v10 = scan_x + 4096;
+  v9 = scan_x - WORLD_HALF_TILE;
+  v10 = scan_x + WORLD_HALF_TILE;
   v11 = 0;
-  v12 = (scan_y + 4096) >> 13;
-  v13 = v9 >> 13;
-  v14 = v10 >> 13;
+  v12 = GAME_world_to_tile(scan_y + WORLD_HALF_TILE);
+  v13 = GAME_world_to_tile(v9);
+  v14 = GAME_world_to_tile(v10);
   v27 = v12;
   v25 = 0;
   v24 = 0;
-  scan_ya = (scan_y - 4096) >> 13;
+  scan_ya = GAME_world_to_tile(scan_y - WORLD_HALF_TILE);
   v15 = scan_ya;
   if ( scan_ya <= v12 )
   {
@@ -17619,11 +17402,11 @@ BoxdPathingClassification __fastcall BOXD_place_unit_xl(
   BoxdPathingClassification posa; // [esp+20h] [ebp+8h]
 
   size = unit->stats->size;
-  map_x = (int)(x - size) >> 13;
-  v6 = (int)(y - size) >> 13;
-  v7 = (int)(size + x) >> 13;
+  map_x = GAME_world_to_tile((int)(x - size));
+  v6 = GAME_world_to_tile((int)(y - size));
+  v7 = GAME_world_to_tile((int)(size + x));
   map_y = v6;
-  ya = (int)(y + size) >> 13;
+  ya = GAME_world_to_tile((int)(y + size));
   if ( v6 > ya )
   {
 LABEL_6:
@@ -17914,9 +17697,9 @@ BOOL LVL_terrain_init()
     g_map_num_tiles_x = boxd->grid[0]->num_tiles_x << v2;
     num_tiles_y = v1->num_tiles_y;
     v33 = v1->world_to_tile_y - 13;
-    g_map_width = g_map_num_tiles_x << 13;
+    g_map_width = GAME_tile_to_world(g_map_num_tiles_x);
     g_map_num_tiles_y = num_tiles_y << v33;
-    g_map_height = num_tiles_y << v33 << 13;
+    g_map_height = GAME_tile_to_world(g_map_num_tiles_y);
     v4 = (TerrainTile *)malloc(24 * g_map_num_tiles_x * (num_tiles_y << v33));
     g_terrain = v4;
     if ( !v4 )
@@ -17980,7 +17763,7 @@ BOOL LVL_terrain_init()
                   {
                     if ( v16 > 0 )
                     {
-                      v17 = v14 << 13;
+                      v17 = GAME_tile_to_world(v14);
                       v34 = v17;
                       v18 = 0;
                       v29 = v16;
@@ -17989,9 +17772,9 @@ BOOL LVL_terrain_init()
                         v19 = v18 + (j << v1->world_to_tile_x);
                         v20 = (IntUnaligned *)v25->type;
                         v21 = v17 + (i << v1->world_to_tile_y);
-                        if ( *(IntUnaligned *)(v25->type + 4) < v19 + 0x2000
+                        if ( *(IntUnaligned *)(v25->type + 4) < v19 + WORLD_TILE
                           && v20[4] > v19
-                          && v20[2] < v21 + 0x2000
+                          && v20[2] < v21 + WORLD_TILE
                           && v20[5] > v21 )
                         {
                           v22 = *v20 - 6;
@@ -19995,6 +19778,7 @@ void __fastcall UNIT_status_bar_update_factory_stripe(Unit *unit, int stripe_col
 }
 
 //----- (004109A0) --------------------------------------------------------
+__attribute__((no_sanitize("alignment")))
 void __fastcall UNIT_status_bar_update_tech(Unit *unit)
 {
   BuildingState *state; // eax
@@ -21620,7 +21404,7 @@ void __cdecl UNIT_infantry_tick(Task *task)
     if ( !entity )                              // mode tick may have removed the unit (nulls entity)
       return;
     x = entity->x;
-    if ( x < 0 || x >= g_map_num_tiles_x << 13 || (y = entity->y, y < 0) || y >= g_map_num_tiles_y << 13 )
+    if ( x < 0 || x >= GAME_tile_to_world(g_map_num_tiles_x) || (y = entity->y, y < 0) || y >= GAME_tile_to_world(g_map_num_tiles_y) )
     {
       unit->entity->x = 25600;
       unit->entity->y = 25600;
@@ -21681,13 +21465,13 @@ void __fastcall UNIT_init(Unit *unit)
       adjusted_x = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       adjusted_x = stats->size != UnitSize_Regular ? 7424 : 4096;
-    unit->entity->x = adjusted_x + (unit->entity->x & 0xFFFFE000);
+    unit->entity->x = adjusted_x + (GAME_world_tile_floor(unit->entity->x));
     v4 = unit->stats;
     if ( v4->is_infantry )
       adjusted_y = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       adjusted_y = v4->size != UnitSize_Regular ? 7424 : 4096;
-    unit->entity->y = adjusted_y + (unit->entity->y & 0xFFFFE000);
+    unit->entity->y = adjusted_y + (GAME_world_tile_floor(unit->entity->y));
     v6 = unit->stats;
     unit->tile_position = UnitPosition_Slot0;
     if ( v6->is_infantry )
@@ -21701,8 +21485,8 @@ void __fastcall UNIT_init(Unit *unit)
       v9 = v8->size != UnitSize_Regular ? 7424 : 4096;
     v10 = BOXD_place_unit_world_coords(
             unit,
-            v9 + (unit->entity->x & 0xFFFFE000),
-            v7 + (unit->entity->y & 0xFFFFE000),
+            v9 + (GAME_world_tile_floor(unit->entity->x)),
+            v7 + (GAME_world_tile_floor(unit->entity->y)),
             UnitPosition_Slot0);
     if ( v10 != UnitTilePosition_Invalid )
     {
@@ -21714,8 +21498,8 @@ void __fastcall UNIT_init(Unit *unit)
       unit->order_target_y = unit->order_next_waypoint_y;
       unit->tile_position = v10;
       task = unit->task;
-      unit->map_x = entity->x >> 13;
-      unit->map_y = entity->y >> 13;
+      unit->map_x = GAME_world_to_tile(entity->x);
+      unit->map_y = GAME_world_to_tile(entity->y);
       task->message_handler = MSG_unit_default;
       UNIT_mode_idle_init(unit);
       return;
@@ -21745,7 +21529,7 @@ LABEL_18:
     v15 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v15 = v14->size != UnitSize_Regular ? 7424 : 4096;
-  v16 = v15 + (unit->map_x << 13);
+  v16 = v15 + (GAME_tile_to_world(unit->map_x));
   v17 = unit->stats;
   unit->order_next_waypoint_x = v16;
   if ( v17->is_infantry )
@@ -21753,7 +21537,7 @@ LABEL_18:
   else
     v18 = v17->size != UnitSize_Regular ? 7424 : 4096;
   order_next_waypoint_x = unit->order_next_waypoint_x;
-  v20 = (unit->map_y << 13) + v18;
+  v20 = (GAME_tile_to_world(unit->map_y)) + v18;
   v21 = unit->task;
   unit->order_next_waypoint_y = v20;
   unit->order = UnitOrder_Move;
@@ -21876,7 +21660,7 @@ BOOL __fastcall UNIT_is_in_firing_range_and_los(Unit *unit, Unit *target, int un
   y = entity->y;
   if ( unit->stats->is_infantry )
   {
-    v8 = (int)((unit->entity->y & 0xFFFFE000) - y + BOXD_adjust_unit_position_y(unit, unit->tile_position)) <= 0;
+    v8 = (int)((GAME_world_tile_floor(unit->entity->y)) - y + BOXD_adjust_unit_position_y(unit, unit->tile_position)) <= 0;
     stats = unit->stats;
     is_infantry = stats->is_infantry;
     if ( v8 )
@@ -21886,7 +21670,7 @@ BOOL __fastcall UNIT_is_in_firing_range_and_los(Unit *unit, Unit *target, int un
           : stats->size != UnitSize_Regular
           ? 7424
           : 4096;
-      v12 = y - (unit->entity->y & 0xFFFFE000) - v13;
+      v12 = y - (GAME_world_tile_floor(unit->entity->y)) - v13;
     }
     else
     {
@@ -21895,7 +21679,7 @@ BOOL __fastcall UNIT_is_in_firing_range_and_los(Unit *unit, Unit *target, int un
           : stats->size != UnitSize_Regular
           ? 7424
           : 4096;
-      v12 = v11 + (unit->entity->y & 0xFFFFE000) - y;
+      v12 = v11 + (GAME_world_tile_floor(unit->entity->y)) - y;
     }
     v14 = unit->stats;
     v15 = v14->is_infantry
@@ -21903,20 +21687,20 @@ BOOL __fastcall UNIT_is_in_firing_range_and_los(Unit *unit, Unit *target, int un
         : v14->size != UnitSize_Regular
         ? 7424
         : 4096;
-    v16 = v15 + (unit->entity->x & 0xFFFFE000) - x;
+    v16 = v15 + (GAME_world_tile_floor(unit->entity->x)) - x;
     v17 = unit->stats;
     v18 = v17->is_infantry;
     if ( v16 <= 0 )
     {
       v21 = v18 ? BOXD_adjust_unit_position_x(unit, unit->tile_position) : v17->size != UnitSize_Regular ? 7424 : 4096;
-      v20 = x - (unit->entity->x & 0xFFFFE000) - v21;
+      v20 = x - (GAME_world_tile_floor(unit->entity->x)) - v21;
     }
     else
     {
       v19 = v18 ? BOXD_adjust_unit_position_x(unit, unit->tile_position) : v17->size != UnitSize_Regular ? 7424 : 4096;
-      v20 = v19 + (unit->entity->x & 0xFFFFE000) - x;
+      v20 = v19 + (GAME_world_tile_floor(unit->entity->x)) - x;
     }
-    v22 = MATH_vec2_length(v20 >> 8, v12 >> 8);
+    v22 = MATH_vec2_length(GAME_world_to_px(v20), GAME_world_to_px(v12));
     v3 = target;
     unit_ida = v22;
   }
@@ -21930,7 +21714,7 @@ BOOL __fastcall UNIT_is_in_firing_range_and_los(Unit *unit, Unit *target, int un
     v26 = v25 - x;
     if ( v25 - x <= 0 )
       v26 = x - v25;
-    unit_ida = MATH_vec2_length(v26 >> 8, v24 >> 8);
+    unit_ida = MATH_vec2_length(GAME_world_to_px(v26), GAME_world_to_px(v24));
   }
   mode = unit->mode;
   firing_range = unit->stats->firing_range;
@@ -22015,7 +21799,7 @@ LABEL_21:
           v8 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
         else
           v8 = stats->size != UnitSize_Regular ? 7424 : 4096;
-        v9 = v8 + (unit->entity->x & 0xFFFFE000);
+        v9 = v8 + (GAME_world_tile_floor(unit->entity->x));
         v10 = unit->stats;
         unit->order_target_x = v9;
         if ( v10->is_infantry )
@@ -22024,7 +21808,7 @@ LABEL_21:
           v11 = v10->size != UnitSize_Regular ? 7424 : 4096;
         y = unit->entity->y;
         unit->mode_return = UNIT_mode_idle_init;
-        v13 = v11 + (y & 0xFFFFE000);
+        v13 = v11 + (GAME_world_tile_floor(y));
         order_target_x = unit->order_target_x;
         unit->order_target_y = v13;
         unit->order_next_waypoint_y = v13;
@@ -22150,14 +21934,14 @@ LABEL_19:
           v7 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
         else
           v7 = stats->size != UnitSize_Regular ? 7424 : 4096;
-        v8 = v7 + (unit->entity->x & 0xFFFFE000);
+        v8 = v7 + (GAME_world_tile_floor(unit->entity->x));
         v9 = unit->stats;
         unit->order_target_x = v8;
         if ( v9->is_infantry )
           v10 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
         else
           v10 = v9->size != UnitSize_Regular ? 7424 : 4096;
-        v11 = unit->entity->y & 0xFFFFE000;
+        v11 = GAME_world_tile_floor(unit->entity->y);
         unit->order_next_waypoint_x = unit->order_target_x;
         v12 = v10 + v11;
         unit->mode_return = UNIT_mode_idle_init;
@@ -22198,15 +21982,15 @@ BOOL __fastcall BOXD_find_nearby_clear_tile(Unit *unit)
   int i; // [esp+14h] [ebp-8h]
   int v22; // [esp+18h] [ebp-4h]
 
-  v2 = unit->entity->y >> 13;
+  v2 = GAME_world_to_tile(unit->entity->y);
   if ( v2 >= g_map_num_tiles_y )
     return BOXD_find_nearby_clear_tile_spiral(unit);
   v3 = g_map_num_tiles_x;
-  for ( i = v2 << 13; ; i += 0x2000 )
+  for ( i = GAME_tile_to_world(v2); ; i += 0x2000 )
   {
     entity = unit->entity;
-    v5 = entity->y >> 13;
-    v6 = (entity->x >> 13) - v2 + v5 - 1;
+    v5 = GAME_world_to_tile(entity->y);
+    v6 = (GAME_world_to_tile(entity->x)) - v2 + v5 - 1;
     if ( v6 < 0 )
       v6 = 0;
     v7 = v6;
@@ -22219,7 +22003,7 @@ LABEL_19:
     if ( ++v2 >= g_map_num_tiles_y )
       return BOXD_find_nearby_clear_tile_spiral(unit);
   }
-  v20 = v6 << 13;
+  v20 = GAME_tile_to_world(v6);
   while ( v7 >= v3 )
   {
 LABEL_18:
@@ -22265,7 +22049,7 @@ LABEL_17:
     v19 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v19 = v18->size != UnitSize_Regular ? 7424 : 4096;
-  unit->tile_position = BOXD_place_unit_world_coords(unit, v19 + (v7 << 13), v17 + (v2 << 13), UnitPosition_Slot0);
+  unit->tile_position = BOXD_place_unit_world_coords(unit, v19 + (GAME_tile_to_world(v7)), v17 + (GAME_tile_to_world(v2)), UnitPosition_Slot0);
   return 1;
 }
 
@@ -22288,8 +22072,8 @@ BOOL __fastcall BOXD_find_nearby_clear_tile_spiral(Unit *unit)
   int v14; // [esp+18h] [ebp-8h]
 
   entity = unit->entity;
-  v2 = (entity->x >> 13) - 1;
-  v3 = (entity->y >> 13) + 1;
+  v2 = (GAME_world_to_tile(entity->x)) - 1;
+  v3 = (GAME_world_to_tile(entity->y)) + 1;
   v12 = 0;
   v4 = -1;
   v5 = &g_terrain[v2 + g_map_num_tiles_x * v3];
@@ -22342,7 +22126,7 @@ LABEL_12:
     v11 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v11 = v10->size != UnitSize_Regular ? 7424 : 4096;
-  unit->tile_position = BOXD_place_unit_world_coords(unit, v11 + (v2 << 13), v9 + (v3 << 13), UnitPosition_Slot0);
+  unit->tile_position = BOXD_place_unit_world_coords(unit, v11 + (GAME_tile_to_world(v2)), v9 + (GAME_tile_to_world(v3)), UnitPosition_Slot0);
   return 1;
 }
 
@@ -22361,8 +22145,8 @@ void __fastcall UNIT_adjust_orientation_to_nav_around_obstacle(Unit *unit)
   entity = unit->entity;
   x = entity->x;
   y = entity->y;
-  v9 = y >> 13;
-  v5 = x >> 13;
+  v9 = GAME_world_to_tile(y);
+  v5 = GAME_world_to_tile(x);
   v10 = MATH_direction_to_orientation(unit->order_next_waypoint_x - x, unit->order_next_waypoint_y - y);
   uint8_t v6 = ((uint8_t)unit->orientation + 16) & 0xE0;
   uint8_t v7 = v6 >> 5;
@@ -22502,7 +22286,7 @@ BOOL __fastcall UNIT_execute_order(Unit *unit)
       entity = unit->entity;
       unit->order_next_waypoint_x = order_target_x;
       unit->order_next_waypoint_y = order_target_y;
-      if ( ((order_target_x ^ entity->x) & 0xFFFFE000) != 0 || ((order_target_y ^ entity->y) & 0xFFFFE000) != 0 )
+      if ( (GAME_world_tile_floor(order_target_x ^ entity->x)) != 0 || (GAME_world_tile_floor(order_target_y ^ entity->y)) != 0 )
         goto LABEL_35;
       if ( unit->task->channel != TaskChannel_MobileDerrick )
         goto LABEL_25;
@@ -22537,8 +22321,8 @@ BOOL __fastcall UNIT_execute_order(Unit *unit)
       }
       v51 = v47->entity;
       x = v51->x;
-      v53 = v51->y >> 13;
-      v54 = x >> 13;
+      v53 = GAME_world_to_tile(v51->y);
+      v54 = GAME_world_to_tile(x);
       units = g_terrain[v54 + g_map_num_tiles_x * v53].units;
       if ( *units == v47 )
       {
@@ -22550,20 +22334,20 @@ BOOL __fastcall UNIT_execute_order(Unit *unit)
         }
         while ( v56 == v47 );
       }
-      v57 = (v53 << 13) + 4096;
+      v57 = (GAME_tile_to_world(v53)) + WORLD_HALF_TILE;
       v58 = unit->entity;
-      v59 = (v54 << 13) + 4096;
+      v59 = (GAME_tile_to_world(v54)) + WORLD_HALF_TILE;
       unit->order_next_waypoint_y = v57;
       unit->order_next_waypoint_x = v59;
-      v60 = v58->x >> 13;
-      v93 = v58->y >> 13;
+      v60 = GAME_world_to_tile(v58->x);
+      v93 = GAME_world_to_tile(v58->y);
       v61 = &g_terrain[v60 + v93 * g_map_num_tiles_x];
       if ( v61[g_terrain_adjacent_tile_by_8_direction[0]].units[0] != v47// BUG
         && v61[g_terrain_adjacent_tile_by_8_direction[1]].units[0] != v47
         && v61[g_terrain_adjacent_tile_by_8_direction[2]].units[0] != v47 )
       {
-        v62 = v59 >> 13;
-        v63 = v57 >> 13;
+        v62 = GAME_world_to_tile(v59);
+        v63 = GAME_world_to_tile(v57);
         v64 = v62 - v60 <= 0 ? v60 - v62 : v62 - v60;
         if ( v64 > 1 )
           goto LABEL_35;
@@ -22628,13 +22412,13 @@ LABEL_25:
       v21 = unit->order_target_y;
       v22 = v20->y;
       v23 = v20->x;
-      v24 = unit->order_target_x >> 13;
-      v25 = (v23 - 25600) >> 13;
+      v24 = GAME_world_to_tile(unit->order_target_x);
+      v25 = GAME_world_to_tile(v23 - 25600);
       unit->order_next_waypoint_x = unit->order_target_x;
-      v26 = (v23 + 25600) >> 13;
-      v27 = v21 >> 13;
+      v26 = GAME_world_to_tile(v23 + 25600);
+      v27 = GAME_world_to_tile(v21);
       unit->order_next_waypoint_y = unit->order_target_y;
-      if ( v24 <= v25 || v24 >= v26 || v27 <= (v22 - 25600) >> 13 || v27 >= (v22 + 25600) >> 13 )
+      if ( v24 <= v25 || v24 >= v26 || v27 <= GAME_world_to_tile(v22 - 25600) || v27 >= GAME_world_to_tile(v22 + 25600) )
         goto LABEL_35;
       UNIT_tanker_convoy_advance_to_next_waypoint(unit);
       return 1;
@@ -22685,7 +22469,7 @@ LABEL_35:
           v41 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
         else
           v41 = stats->size != UnitSize_Regular ? 7424 : 4096;
-        v42 = v41 + (unit->entity->x & 0xFFFFE000);
+        v42 = v41 + (GAME_world_tile_floor(unit->entity->x));
         v43 = unit->stats;
         unit->order_next_waypoint_x = v42;
         if ( v43->is_infantry )
@@ -22694,7 +22478,7 @@ LABEL_35:
           v44 = v43->size != UnitSize_Regular ? 7424 : 4096;
         v45 = unit->entity->y;
         unit->mode = UNIT_mode_snap_fine_init;
-        v46 = v44 + (v45 & 0xFFFFE000);
+        v46 = v44 + (GAME_world_tile_floor(v45));
         unit->order_next_waypoint_y = v46;
         return 1;
       }
@@ -22704,18 +22488,18 @@ LABEL_35:
       {
         v70 = unit->order_target_x;
         v71 = unit->entity;
-        v72 = v71->x >> 13;
-        if ( (v70 >> 13) - v72 <= 0 )
-          v73 = v72 - (v70 >> 13);
+        v72 = GAME_world_to_tile(v71->x);
+        if ( (GAME_world_to_tile(v70)) - v72 <= 0 )
+          v73 = v72 - (GAME_world_to_tile(v70));
         else
-          v73 = (unit->order_target_x >> 13) - v72;
+          v73 = (GAME_world_to_tile(unit->order_target_x)) - v72;
         v74 = v71->y;
         v75 = unit->order_target_y;
-        v76 = v74 >> 13;
-        if ( (v75 >> 13) - v76 <= 0 )
-          v77 = v76 - (unit->order_target_y >> 13);
+        v76 = GAME_world_to_tile(v74);
+        if ( (GAME_world_to_tile(v75)) - v76 <= 0 )
+          v77 = v76 - (GAME_world_to_tile(unit->order_target_y));
         else
-          v77 = (unit->order_target_y >> 13) - v76;
+          v77 = (GAME_world_to_tile(unit->order_target_y)) - v76;
         if ( v73 + v77 <= 5 )
         {
           v78 = unit->order_target;
@@ -22745,7 +22529,7 @@ LABEL_35:
       v30 = unit->entity;
       unit->order_next_waypoint_x = v28;
       unit->order_next_waypoint_y = v29;
-      if ( ((v28 ^ v30->x) & 0xFFFFE000) != 0 || ((v29 ^ v30->y) & 0xFFFFE000) != 0 )
+      if ( (GAME_world_tile_floor(v28 ^ v30->x)) != 0 || (GAME_world_tile_floor(v29 ^ v30->y)) != 0 )
         goto LABEL_35;
       unit->mode_return = UNIT_mode_idle_init;
       UNIT_mode_snap_fine_init(unit);
@@ -22812,8 +22596,8 @@ void __fastcall BOXD_adjust_xl_movement_destination(Unit *unit, int *out_x, int 
 
   if ( unit->stats->size == UnitSize_XL )
   {
-    map_x = *out_x >> 13;
-    map_y = *out_y >> 13;
+    map_x = GAME_world_to_tile(*out_x);
+    map_y = GAME_world_to_tile(*out_y);
     tile = &g_terrain[map_x + g_map_num_tiles_x * map_y];
     if ( BOXD_classify_tile_for_pathing(unit, map_x, map_y, tile) == Boxd_Impassable )
     {
@@ -22855,8 +22639,8 @@ BOOL __fastcall UNIT_try_engage_enemy_in_area(Unit *unit)
 
   entity = unit->entity;
   v2 = 9;
-  v3 = (entity->x >> 13) - 4;
-  v4 = (entity->y >> 13) - 4;
+  v3 = (GAME_world_to_tile(entity->x)) - 4;
+  v4 = (GAME_world_to_tile(entity->y)) - 4;
   v14 = 9;
   if ( v3 < 0 )
   {
@@ -22959,8 +22743,8 @@ void __fastcall UNIT_scan_for_targets_of_opportunity(Unit *unit)
     v1->opportunity_target = nullptr;
     entity = v1->entity;
     v6 = stats->firing_range >> 5;
-    v7 = (entity->x >> 13) - v6;
-    v8 = (entity->y >> 13) - v6;
+    v7 = (GAME_world_to_tile(entity->x)) - v6;
+    v8 = (GAME_world_to_tile(entity->y)) - v6;
     v21 = 2 * v6 + 1;
     v9 = v21;
     if ( v7 < 0 )
@@ -23024,7 +22808,7 @@ void __fastcall UNIT_scan_for_targets_of_opportunity(Unit *unit)
       }
     }
     v17 = g_bomber_active_head;
-    if ( g_bomber_active_head != (Bomber *)&g_bomber_active_head )
+    if ( g_bomber_active_head != END(g_bomber_active_head) )
     {
       while ( 1 )
       {
@@ -23035,7 +22819,7 @@ void __fastcall UNIT_scan_for_targets_of_opportunity(Unit *unit)
             break;
         }
         v17 = v17->next;
-        if ( v17 == (Bomber *)&g_bomber_active_head )
+        if ( v17 == END(g_bomber_active_head) )
           return;
       }
       v1->opportunity_target = v17->unit;
@@ -23075,8 +22859,8 @@ BOOL __fastcall UNIT_path_try_sidestep_to_adjacent_tile(Unit *unit)
   v6 = 0x2000;
   x = entity->x;
   y = entity->y;
-  v9 = (order_next_waypoint_x - x) >> 13;
-  v10 = (order_next_waypoint_y - y) >> 13;
+  v9 = GAME_world_to_tile(order_next_waypoint_x - x);
+  v10 = GAME_world_to_tile(order_next_waypoint_y - y);
   if ( v9 < 0 )
     v6 = -8192;
   if ( v10 < 0 )
@@ -23174,14 +22958,14 @@ void __fastcall UNIT_return_to_position(Unit *unit)
       v9 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v9 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    v10 = v9 + (unit->entity->x & 0xFFFFE000);
+    v10 = v9 + (GAME_world_tile_floor(unit->entity->x));
     v11 = unit->stats;
     unit->order_target_x = v10;
     if ( v11->is_infantry )
       v12 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       v12 = v11->size != UnitSize_Regular ? 7424 : 4096;
-    v13 = unit->entity->y & 0xFFFFE000;
+    v13 = GAME_world_tile_floor(unit->entity->y);
     unit->mode_return = UNIT_mode_idle_init;
     unit->order_target_y = v12 + v13;
     UNIT_mode_snap_fine_init(unit);
@@ -23210,8 +22994,8 @@ BOOL __fastcall UNIT_path_look_ahead(Unit *unit)
     return 0;
   entity = unit->entity;
   v3 = (int)unit->orientation >> 4;
-  v4 = (entity->y + g_terrain_adjacent_tile_offset_by_16_direction[(v3 - 4) & 0xF]) >> 13;
-  v5 = (entity->x + g_terrain_adjacent_tile_offset_by_16_direction[v3]) >> 13;
+  v4 = GAME_world_to_tile(entity->y + g_terrain_adjacent_tile_offset_by_16_direction[(v3 - 4) & 0xF]);
+  v5 = GAME_world_to_tile(entity->x + g_terrain_adjacent_tile_offset_by_16_direction[v3]);
   v6 = &g_terrain[v5 + g_map_num_tiles_x * v4];
   v7 = BOXD_classify_tile_for_pathing(unit, v5, v4, v6);
   if ( (int)v7 < (int)Boxd_Impassable )
@@ -23289,7 +23073,7 @@ void __fastcall UNIT_path_try_cardinal_axis_slide(Unit *unit)
       entity = unit->entity;
       if ( entity->x_speed <= 0 )
       {
-        if ( entity->x >= 0 && (entity->x & 0xFFFFE000) != 0 )
+        if ( entity->x >= 0 && (GAME_world_tile_floor(entity->x)) != 0 )
         {
           stats = unit->stats;
           if ( stats->is_infantry )
@@ -23297,11 +23081,11 @@ void __fastcall UNIT_path_try_cardinal_axis_slide(Unit *unit)
           else
             v6 = stats->size != UnitSize_Regular ? 7424 : 4096;
           v7 = unit->entity;
-          v8 = v7->x - 4096;
+          v8 = v7->x - WORLD_HALF_TILE;
           goto LABEL_14;
         }
       }
-      else if ( entity->x >> 13 < g_map_num_tiles_x - 1 )
+      else if ( GAME_world_to_tile(entity->x) < g_map_num_tiles_x - 1 )
       {
         v5 = unit->stats;
         if ( v5->is_infantry )
@@ -23314,9 +23098,9 @@ void __fastcall UNIT_path_try_cardinal_axis_slide(Unit *unit)
           v7 = unit->entity;
           v6 = v5->size != UnitSize_Regular ? 7424 : 4096;
         }
-        v8 = v7->x + 4096;
+        v8 = v7->x + WORLD_HALF_TILE;
 LABEL_14:
-        unit->order_next_waypoint_x = v6 + (v8 & 0xFFFFE000);
+        unit->order_next_waypoint_x = v6 + (GAME_world_tile_floor(v8));
         unit->order_next_waypoint_y = v7->y;
         unit->mode = UNIT_mode_walk_waypoints_tick;
         return;
@@ -23330,7 +23114,7 @@ LABEL_14:
       if ( v10->y_speed <= 0 )
       {
         x = v10->x;
-        if ( x >= 0 && (x & 0xFFFFE000) != 0 )
+        if ( x >= 0 && (GAME_world_tile_floor(x)) != 0 )
         {
           unit->order_next_waypoint_x = x;
           v15 = unit->stats;
@@ -23338,11 +23122,11 @@ LABEL_14:
             v12 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
           else
             v12 = v15->size != UnitSize_Regular ? 7424 : 4096;
-          v13 = unit->entity->y - 4096;
+          v13 = unit->entity->y - WORLD_HALF_TILE;
           goto LABEL_27;
         }
       }
-      else if ( v10->y >> 13 < g_map_num_tiles_y - 1 )
+      else if ( GAME_world_to_tile(v10->y) < g_map_num_tiles_y - 1 )
       {
         unit->order_next_waypoint_x = v10->x;
         v11 = unit->stats;
@@ -23350,10 +23134,10 @@ LABEL_14:
           v12 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
         else
           v12 = v11->size != UnitSize_Regular ? 7424 : 4096;
-        v13 = unit->entity->y + 4096;
+        v13 = unit->entity->y + WORLD_HALF_TILE;
 LABEL_27:
         unit->mode = UNIT_mode_walk_waypoints_tick;
-        unit->order_next_waypoint_y = v12 + (v13 & 0xFFFFE000);
+        unit->order_next_waypoint_y = v12 + (GAME_world_tile_floor(v13));
         return;
       }
     }
@@ -23456,8 +23240,8 @@ LABEL_18:
     entity = unit->entity;
     uint8_t v8 = v3 >> 4;
     v9 = entity->x + g_terrain_adjacent_tile_offset_by_16_direction[v8];
-    v10 = (entity->y + g_terrain_adjacent_tile_offset_by_16_direction[(v8 - 4) & 0xF]) >> 13;
-    v11 = BOXD_classify_tile_for_pathing(unit, v9 >> 13, v10, &g_terrain[(v9 >> 13) + g_map_num_tiles_x * v10]);
+    v10 = GAME_world_to_tile(entity->y + g_terrain_adjacent_tile_offset_by_16_direction[(v8 - 4) & 0xF]);
+    v11 = BOXD_classify_tile_for_pathing(unit, GAME_world_to_tile(v9), v10, &g_terrain[(GAME_world_to_tile(v9)) + g_map_num_tiles_x * v10]);
   }
   else
   {
@@ -23477,7 +23261,7 @@ LABEL_18:
         y = unit->entity->y;
         unit->orientation = orientation;
         unit->mode = UNIT_mode_walk_waypoints_init;
-        unit->order_next_waypoint_y = v21 + ((y - 0x2000) & 0xFFFFE000);
+        unit->order_next_waypoint_y = v21 + (GAME_world_tile_floor(y - WORLD_TILE));
         return;
       case MobdOrientation_E:
 LABEL_39:
@@ -23492,7 +23276,7 @@ LABEL_39:
           v25 = unit->entity;
           v24 = v23->size != UnitSize_Regular ? 7424 : 4096;
         }
-        v26 = v25->x + 0x2000;
+        v26 = v25->x + WORLD_TILE;
         goto LABEL_51;
       case MobdOrientation_S:
 LABEL_43:
@@ -23505,7 +23289,7 @@ LABEL_43:
         v29 = unit->entity->y;
         unit->orientation = orientation;
         unit->mode = UNIT_mode_walk_waypoints_init;
-        unit->order_next_waypoint_y = v28 + ((v29 + 0x2000) & 0xFFFFE000);
+        unit->order_next_waypoint_y = v28 + (GAME_world_tile_floor(v29 + WORLD_TILE));
         return;
       case MobdOrientation_W:
 LABEL_47:
@@ -23515,9 +23299,9 @@ LABEL_47:
         else
           v24 = v30->size != UnitSize_Regular ? 7424 : 4096;
         v25 = unit->entity;
-        v26 = v25->x - 0x2000;
+        v26 = v25->x - WORLD_TILE;
 LABEL_51:
-        unit->order_next_waypoint_x = v24 + (v26 & 0xFFFFE000);
+        unit->order_next_waypoint_x = v24 + (GAME_world_tile_floor(v26));
         unit->order_next_waypoint_y = v25->y;
         goto LABEL_52;
       default:
@@ -23538,9 +23322,9 @@ LABEL_52:
       v15 = v13->y + g_terrain_adjacent_tile_offset_by_16_direction[((unsigned __int8)((int)v4 >> 4) - 4) & 0xF];
       v16 = BOXD_classify_tile_for_pathing(
               unit,
-              v14 >> 13,
-              v15 >> 13,
-              &g_terrain[(v14 >> 13) + g_map_num_tiles_x * (v15 >> 13)]);
+              GAME_world_to_tile(v14),
+              GAME_world_to_tile(v15),
+              &g_terrain[(GAME_world_to_tile(v14)) + g_map_num_tiles_x * (GAME_world_to_tile(v15))]);
     }
     else
     {
@@ -23560,7 +23344,7 @@ LABEL_52:
           v19 = unit->entity->y;
           unit->orientation = orientation;
           unit->mode = UNIT_mode_walk_waypoints_init;
-          unit->order_next_waypoint_y = v18 + ((v19 - 0x2000) & 0xFFFFE000);
+          unit->order_next_waypoint_y = v18 + (GAME_world_tile_floor(v19 - WORLD_TILE));
           break;
         case MobdOrientation_E:
           goto LABEL_39;
@@ -23619,7 +23403,7 @@ BOOL __fastcall UNIT_tanker_check_dock_proximity(Unit *unit)
       x = entity->x;
       v10 = v6->x;
       v11 = x - v10 <= 0 ? v10 - x : x - v10;
-      if ( MATH_vec2_length(v11 >> 8, v8 >> 8) < 128 )
+      if ( MATH_vec2_length(GAME_world_to_px(v11), GAME_world_to_px(v8)) < 128 )
       {
         UNIT_tanker_dock_init(unit);
         return 1;
@@ -23632,7 +23416,7 @@ BOOL __fastcall UNIT_tanker_check_dock_proximity(Unit *unit)
     v14 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v14 = stats->size != UnitSize_Regular ? 7424 : 4096;
-  v15 = v14 + (unit->entity->x & 0xFFFFE000);
+  v15 = v14 + (GAME_world_tile_floor(unit->entity->x));
   v16 = unit->stats;
   unit->order_next_waypoint_x = v15;
   if ( v16->is_infantry )
@@ -23641,7 +23425,7 @@ BOOL __fastcall UNIT_tanker_check_dock_proximity(Unit *unit)
     v17 = v16->size != UnitSize_Regular ? 7424 : 4096;
   v18 = unit->entity->y;
   unit->mode = UNIT_mode_snap_fine_init;
-  v19 = v17 + (v18 & 0xFFFFE000);
+  v19 = v17 + (GAME_world_tile_floor(v18));
   unit->order_next_waypoint_y = v19;
   return 1;
 }
@@ -23669,7 +23453,7 @@ void __fastcall UNIT_mode_idle_init(Unit *unit)
     v3 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v3 = stats->size != UnitSize_Regular ? 7424 : 4096;
-  v4 = v3 + (unit->entity->x & 0xFFFFE000);
+  v4 = v3 + (GAME_world_tile_floor(unit->entity->x));
   v5 = unit->stats;
   unit->order_next_waypoint_x = v4;
   if ( v5->is_infantry )
@@ -23677,7 +23461,7 @@ void __fastcall UNIT_mode_idle_init(Unit *unit)
   else
     v6 = v5->size != UnitSize_Regular ? 7424 : 4096;
   entity = unit->entity;
-  v8 = v6 + (entity->y & 0xFFFFE000);
+  v8 = v6 + (GAME_world_tile_floor(entity->y));
   order_next_waypoint_x = unit->order_next_waypoint_x;
   unit->order_next_waypoint_y = v8;
   entity->x_speed = order_next_waypoint_x - entity->x;
@@ -23702,7 +23486,7 @@ void __fastcall UNIT_mode_idle_init(Unit *unit)
     v13 = unit->stats;
     if ( v13->is_infantry )
     {
-      v14 = (v13->hitpoints << 8) / g_veterancy_regen_rate[veterancy];// PERCENT256
+      v14 = RATE_FP(v13->hitpoints, g_veterancy_regen_rate[veterancy]);
       unit->hp_regen_accumulator = 0;
       unit->hp_regen_rate = v14;
     }
@@ -23839,13 +23623,13 @@ void __fastcall UNIT_mode_infantry_escort_init(Unit *unit)
     v4 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v4 = stats->size != UnitSize_Regular ? 7424 : 4096;
-  unit->entity->x = v4 + (unit->entity->x & 0xFFFFE000);
+  unit->entity->x = v4 + (GAME_world_tile_floor(unit->entity->x));
   v5 = unit->stats;
   if ( v5->is_infantry )
     v6 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
   else
     v6 = v5->size != UnitSize_Regular ? 7424 : 4096;
-  unit->entity->y = v6 + (unit->entity->y & 0xFFFFE000);
+  unit->entity->y = v6 + (GAME_world_tile_floor(unit->entity->y));
   BOXD_pathing_set_friendly_mask(unit, 0);
 }
 
@@ -23943,7 +23727,7 @@ void __fastcall UNIT_mode_build_path(Unit *unit)
 
   type = unit->type;
   if ( (type != UnitType_Surv_Tanker && type != UnitType_Mute_Tanker)
-    || ((entity = unit->entity, entity->x >> 13 == unit->map_x) && entity->y >> 13 == unit->map_y ))
+    || ((entity = unit->entity, GAME_world_to_tile(entity->x) == unit->map_x) && GAME_world_to_tile(entity->y) == unit->map_y ))
   {
     unit->entity->x_speed = 0;
     unit->entity->y_speed = 0;
@@ -23977,7 +23761,7 @@ void __fastcall UNIT_mode_build_path(Unit *unit)
             v8 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
           else
             v8 = stats->size != UnitSize_Regular ? 7424 : 4096;
-          v9 = v8 + (unit->scan_pathing.first_clear_tile_x << 13);
+          v9 = v8 + (GAME_tile_to_world(unit->scan_pathing.first_clear_tile_x));
           v10 = unit->stats;
           unit->order_next_waypoint_x = v9;
           if ( v10->is_infantry )
@@ -24014,7 +23798,7 @@ void __fastcall UNIT_mode_build_path(Unit *unit)
               v18 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
             else
               v18 = v17->size != UnitSize_Regular ? 7424 : 4096;
-            v19 = v18 + (unit->scan_pathing.first_clear_tile_x << 13);
+            v19 = v18 + (GAME_tile_to_world(unit->scan_pathing.first_clear_tile_x));
             v10 = unit->stats;
             unit->order_next_waypoint_x = v19;
             if ( v10->is_infantry )
@@ -24023,7 +23807,7 @@ LABEL_18:
             else
 LABEL_34:
               v11 = v10->size != UnitSize_Regular ? 7424 : 4096;
-            unit->order_next_waypoint_y = v11 + (unit->scan_pathing.first_clear_tile_y << 13);
+            unit->order_next_waypoint_y = v11 + (GAME_tile_to_world(unit->scan_pathing.first_clear_tile_y));
 LABEL_36:
             UNIT_mode_walk_waypoints_init(unit);
           }
@@ -24077,14 +23861,14 @@ void __fastcall UNIT_path_ray_stack_pop(Unit *unit)
           v17 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
         else
           v17 = stats->size != UnitSize_Regular ? 7424 : 4096;
-        v18 = v17 + (unit->scan_pathing.first_clear_tile_x << 13);
+        v18 = v17 + (GAME_tile_to_world(unit->scan_pathing.first_clear_tile_x));
         v19 = unit->stats;
         unit->order_next_waypoint_x = v18;
         if ( v19->is_infantry )
           v20 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
         else
           v20 = v19->size != UnitSize_Regular ? 7424 : 4096;
-        unit->order_next_waypoint_y = v20 + (unit->scan_pathing.first_clear_tile_y << 13);
+        unit->order_next_waypoint_y = v20 + (GAME_tile_to_world(unit->scan_pathing.first_clear_tile_y));
         UNIT_mode_walk_waypoints_init(unit);
       }
       else
@@ -24126,8 +23910,8 @@ void __fastcall UNIT_path_ray_stack_pop(Unit *unit)
         ? (v7 = v6->size != UnitSize_Regular ? 7424 : 4096)
         : (v7 = BOXD_adjust_unit_position_x(unit, unit->tile_position)),
           BOXD_can_path_to(
-            v7 + (unit->scan_pathing.cw_scan_x << 13),
-            v5 + (unit->scan_pathing.cw_scan_y << 13),
+            v7 + (GAME_tile_to_world(unit->scan_pathing.cw_scan_x)),
+            v5 + (GAME_tile_to_world(unit->scan_pathing.cw_scan_y)),
             unit->entity->x,
             unit->entity->y,
             unit)) )
@@ -24137,14 +23921,14 @@ void __fastcall UNIT_path_ray_stack_pop(Unit *unit)
         v9 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
       else
         v9 = v8->size != UnitSize_Regular ? 7424 : 4096;
-      v10 = v9 + (unit->scan_pathing.cw_scan_x << 13);
+      v10 = v9 + (GAME_tile_to_world(unit->scan_pathing.cw_scan_x));
       v11 = unit->stats;
       unit->order_next_waypoint_x = v10;
       if ( v11->is_infantry )
         v12 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
       else
         v12 = v11->size != UnitSize_Regular ? 7424 : 4096;
-      unit->order_next_waypoint_y = v12 + (unit->scan_pathing.cw_scan_y << 13);
+      unit->order_next_waypoint_y = v12 + (GAME_tile_to_world(unit->scan_pathing.cw_scan_y));
       UNIT_mode_walk_waypoints_init(unit);
     }
     else
@@ -24228,7 +24012,7 @@ void __fastcall UNIT_mode_path_around_obstacles(Unit *unit)
              &unit->scan_pathing.cw_heading) )
       {
         entity = unit->entity;
-        if ( *p_cw_scan_x == entity->x >> 13 && *p_cw_scan_y == entity->y >> 13 )
+        if ( *p_cw_scan_x == GAME_world_to_tile(entity->x) && *p_cw_scan_y == GAME_world_to_tile(entity->y) )
         {
 LABEL_63:
           unit->scan_pathing.push_through_timer = 0;
@@ -24257,8 +24041,8 @@ LABEL_63:
               ? 7424
               : 4096;
           if ( BOXD_can_path_to(
-                 v10 + (*p_cw_scan_x << 13),
-                 v8 + (*p_cw_scan_y << 13),
+                 v10 + (GAME_tile_to_world(*p_cw_scan_x)),
+                 v8 + (GAME_tile_to_world(*p_cw_scan_y)),
                  unit->entity->x,
                  unit->entity->y,
                  unit) )
@@ -24268,7 +24052,7 @@ LABEL_63:
               v33 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
             else
               v33 = v32->size != UnitSize_Regular ? 7424 : 4096;
-            v34 = v33 + (unit->scan_pathing.cw_scan_x << 13);
+            v34 = v33 + (GAME_tile_to_world(unit->scan_pathing.cw_scan_x));
             v35 = unit->stats;
             unit->order_next_waypoint_x = v34;
             if ( v35->is_infantry )
@@ -24319,7 +24103,7 @@ LABEL_63:
              &unit->scan_pathing.ccw_heading) )
       {
         v17 = unit->entity;
-        if ( *p_ccw_scan_x == v17->x >> 13 && *p_ccw_scan_y == v17->y >> 13 )
+        if ( *p_ccw_scan_x == GAME_world_to_tile(v17->x) && *p_ccw_scan_y == GAME_world_to_tile(v17->y) )
           goto LABEL_63;
         v18 = BOXD_classify_tile_for_pathing(
                 unit,
@@ -24341,8 +24125,8 @@ LABEL_63:
               ? 7424
               : 4096;
           if ( BOXD_can_path_to(
-                 v22 + (*p_ccw_scan_x << 13),
-                 v20 + (*p_ccw_scan_y << 13),
+                 v22 + (GAME_tile_to_world(*p_ccw_scan_x)),
+                 v20 + (GAME_tile_to_world(*p_ccw_scan_y)),
                  unit->entity->x,
                  unit->entity->y,
                  unit) )
@@ -24352,7 +24136,7 @@ LABEL_63:
               v39 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
             else
               v39 = v38->size != UnitSize_Regular ? 7424 : 4096;
-            v40 = v39 + (unit->scan_pathing.ccw_scan_x << 13);
+            v40 = v39 + (GAME_tile_to_world(unit->scan_pathing.ccw_scan_x));
             v41 = unit->stats;
             unit->order_next_waypoint_x = v40;
             if ( v41->is_infantry )
@@ -24361,7 +24145,7 @@ LABEL_63:
               v36 = v41->size != UnitSize_Regular ? 7424 : 4096;
             v37 = unit->scan_pathing.ccw_scan_y;
 LABEL_71:
-            unit->order_next_waypoint_y = v36 + (v37 << 13);
+            unit->order_next_waypoint_y = v36 + (GAME_tile_to_world(v37));
             UNIT_mode_walk_waypoints_init(unit);
             return;
           }
@@ -24399,7 +24183,7 @@ LABEL_71:
       unit->path_flags &= ~8u;
     if ( v27 == (Unit *)unit->ray_exit_map_xs && (int *)unit->scan_pathing.ccw_scan_y == unit->ray_exit_map_ys )
     {
-      unit->path_flags &= 0x10;
+      unit->path_flags &= ~0x10;                 // CCW reached ray exit: stop CCW scan (was `&= 0x10`, which wiped every other flag)
     }
     if ( (unit->path_flags & 0x18) == 0 || path_scan_iteration > 350 )
       break;
@@ -24642,7 +24426,7 @@ void __fastcall UNIT_mode_snap_fine_init(Unit *unit)
       v4 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v4 = size != UnitSize_Regular ? 7424 : 4096;
-    v5 = v4 + (unit->entity->x & 0xFFFFE000);
+    v5 = v4 + (GAME_world_tile_floor(unit->entity->x));
     v6 = unit->stats;
     unit->order_next_waypoint_x = v5;
     is_infantry = v6->is_infantry;
@@ -24652,18 +24436,18 @@ LABEL_16:
     else
       v13 = v6->size != UnitSize_Regular ? 7424 : 4096;
     entity = unit->entity;
-    unit->order_next_waypoint_y = v13 + (entity->y & 0xFFFFE000);
+    unit->order_next_waypoint_y = v13 + (GAME_world_tile_floor(entity->y));
     goto LABEL_24;
   }
   v8 = stats->is_infantry;
-  if ( (unit->entity->x & 0x1FFFu) < 0x1000 )
+  if ( (unit->entity->x & (WORLD_TILE - 1)) < WORLD_HALF_TILE )
   {
     if ( v8 )
       v11 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v11 = 7424;
     v10 = unit->entity;
-    unit->order_next_waypoint_x = (v10->x & 0xFFFFE000) + v11 - 0x2000;
+    unit->order_next_waypoint_x = (GAME_world_tile_floor(v10->x)) + v11 - WORLD_TILE;
   }
   else
   {
@@ -24672,10 +24456,10 @@ LABEL_16:
     else
       v9 = 7424;
     v10 = unit->entity;
-    unit->order_next_waypoint_x = v9 + (v10->x & 0xFFFFE000);
+    unit->order_next_waypoint_x = v9 + (GAME_world_tile_floor(v10->x));
   }
   v6 = unit->stats;
-  v12 = (v10->y & 0x1FFFu) < 0x1000;
+  v12 = (v10->y & (WORLD_TILE - 1)) < WORLD_HALF_TILE;
   is_infantry = v6->is_infantry;
   if ( !v12 )
     goto LABEL_16;
@@ -24684,7 +24468,7 @@ LABEL_16:
   else
     v15 = v6->size != UnitSize_Regular ? 7424 : 4096;
   entity = unit->entity;
-  unit->order_next_waypoint_y = (entity->y & 0xFFFFE000) + v15 - 0x2000;
+  unit->order_next_waypoint_y = (GAME_world_tile_floor(entity->y)) + v15 - WORLD_TILE;
 LABEL_24:
   x = entity->x;
   order_next_waypoint_x = unit->order_next_waypoint_x;
@@ -24771,7 +24555,7 @@ void __fastcall UNIT_mode_snap_fine_tick(Unit *unit)
       if ( size != UnitSize_XL )
       {
         v12 = 0;
-        for ( i = g_terrain[(unit->entity->x >> 13) + g_map_num_tiles_x * (unit->entity->y >> 13)].units; *i != unit; ++i )
+        for ( i = g_terrain[(GAME_world_to_tile(unit->entity->x)) + g_map_num_tiles_x * (GAME_world_to_tile(unit->entity->y))].units; *i != unit; ++i )
         {
           if ( ++v12 >= 5 )
             return;
@@ -24780,13 +24564,13 @@ void __fastcall UNIT_mode_snap_fine_tick(Unit *unit)
           v14 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
         else
           v14 = size != UnitSize_Regular ? 7424 : 4096;
-        unit->entity->x = v14 + (unit->entity->x & 0xFFFFE000);
+        unit->entity->x = v14 + (GAME_world_tile_floor(unit->entity->x));
         v15 = unit->stats;
         if ( v15->is_infantry )
           v16 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
         else
           v16 = v15->size != UnitSize_Regular ? 7424 : 4096;
-        unit->entity->y = v16 + (unit->entity->y & 0xFFFFE000);
+        unit->entity->y = v16 + (GAME_world_tile_floor(unit->entity->y));
         unit->mode = unit->mode_return;
       }
     }
@@ -24837,7 +24621,7 @@ void __fastcall UNIT_mode_snap_coarse_init(Unit *unit)
       v4 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v4 = size != UnitSize_Regular ? 7424 : 4096;
-    v5 = v4 + (unit->entity->x & 0xFFFFE000);
+    v5 = v4 + (GAME_world_tile_floor(unit->entity->x));
     v6 = unit->stats;
     unit->order_next_waypoint_x = v5;
     is_infantry = v6->is_infantry;
@@ -24847,18 +24631,18 @@ LABEL_16:
     else
       v13 = v6->size != UnitSize_Regular ? 7424 : 4096;
     entity = unit->entity;
-    unit->order_next_waypoint_y = v13 + (entity->y & 0xFFFFE000);
+    unit->order_next_waypoint_y = v13 + (GAME_world_tile_floor(entity->y));
     goto LABEL_24;
   }
   v8 = stats->is_infantry;
-  if ( (unit->entity->x & 0x1FFFu) < 0x1000 )
+  if ( (unit->entity->x & (WORLD_TILE - 1)) < WORLD_HALF_TILE )
   {
     if ( v8 )
       v11 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v11 = 7424;
     v10 = unit->entity;
-    unit->order_next_waypoint_x = (v10->x & 0xFFFFE000) + v11 - 0x2000;
+    unit->order_next_waypoint_x = (GAME_world_tile_floor(v10->x)) + v11 - WORLD_TILE;
   }
   else
   {
@@ -24867,10 +24651,10 @@ LABEL_16:
     else
       v9 = 7424;
     v10 = unit->entity;
-    unit->order_next_waypoint_x = v9 + (v10->x & 0xFFFFE000);
+    unit->order_next_waypoint_x = v9 + (GAME_world_tile_floor(v10->x));
   }
   v6 = unit->stats;
-  v12 = (v10->y & 0x1FFFu) < 0x1000;
+  v12 = (v10->y & (WORLD_TILE - 1)) < WORLD_HALF_TILE;
   is_infantry = v6->is_infantry;
   if ( !v12 )
     goto LABEL_16;
@@ -24879,7 +24663,7 @@ LABEL_16:
   else
     v15 = v6->size != UnitSize_Regular ? 7424 : 4096;
   entity = unit->entity;
-  unit->order_next_waypoint_y = (entity->y & 0xFFFFE000) + v15 - 0x2000;
+  unit->order_next_waypoint_y = (GAME_world_tile_floor(entity->y)) + v15 - WORLD_TILE;
 LABEL_24:
   x = entity->x;
   order_next_waypoint_x = unit->order_next_waypoint_x;
@@ -24964,7 +24748,7 @@ void __fastcall UNIT_mode_snap_coarse_tick(Unit *unit)
       if ( size != UnitSize_XL )
       {
         v12 = 0;
-        for ( i = g_terrain[(unit->entity->x >> 13) + g_map_num_tiles_x * (unit->entity->y >> 13)].units; *i != unit; ++i )
+        for ( i = g_terrain[(GAME_world_to_tile(unit->entity->x)) + g_map_num_tiles_x * (GAME_world_to_tile(unit->entity->y))].units; *i != unit; ++i )
         {
           if ( ++v12 >= 5 )
             return;
@@ -24973,13 +24757,13 @@ void __fastcall UNIT_mode_snap_coarse_tick(Unit *unit)
           v14 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
         else
           v14 = size != UnitSize_Regular ? 7424 : 4096;
-        unit->entity->x = v14 + (unit->entity->x & 0xFFFFE000);
+        unit->entity->x = v14 + (GAME_world_tile_floor(unit->entity->x));
         v15 = unit->stats;
         if ( v15->is_infantry )
           v16 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
         else
           v16 = v15->size != UnitSize_Regular ? 7424 : 4096;
-        unit->entity->y = v16 + (unit->entity->y & 0xFFFFE000);
+        unit->entity->y = v16 + (GAME_world_tile_floor(unit->entity->y));
         unit->mode = unit->mode_return;
       }
     }
@@ -25124,13 +24908,13 @@ void __fastcall UNIT_obstacle_scan_begin(Unit *unit)
   unit->entity->x_speed = 0;
   unit->entity->y_speed = 0;
   entity = unit->entity;
-  v3 = unit->order_next_waypoint_x >> 13;
-  v4 = unit->order_next_waypoint_y >> 13;
+  v3 = GAME_world_to_tile(unit->order_next_waypoint_x);
+  v4 = GAME_world_to_tile(unit->order_next_waypoint_y);
   unit->path_next_waypoint_tile_x = v3;
   unit->path_next_waypoint_tile_y = v4;
-  v5 = entity->x >> 13;
+  v5 = GAME_world_to_tile(entity->x);
   unit->path_scan_origin_tile_x = v5;
-  unit->path_scan_origin_tile_y = entity->y >> 13;
+  unit->path_scan_origin_tile_y = GAME_world_to_tile(entity->y);
   path_scan_origin_tile_y = unit->path_scan_origin_tile_y;
   unit->scan_pathing.ccw_scan_x = v5;
   unit->scan_pathing.cw_scan_x = v5;
@@ -25284,7 +25068,7 @@ void __fastcall UNIT_obstacle_scan_finalize(Unit *unit)
 
   entity = unit->entity;
   path_scan_best_tile_x = unit->path_scan_best_tile_x;
-  if ( path_scan_best_tile_x == entity->x >> 13 && unit->path_scan_best_tile_y == entity->y >> 13 )
+  if ( path_scan_best_tile_x == GAME_world_to_tile(entity->x) && unit->path_scan_best_tile_y == GAME_world_to_tile(entity->y) )
   {
     unit->mode_return = UNIT_mode_idle_init;
     UNIT_mode_snap_fine_init(unit);
@@ -25301,7 +25085,7 @@ void __fastcall UNIT_obstacle_scan_finalize(Unit *unit)
       v7 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v7 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    v8 = v7 + (unit->path_next_waypoint_tile_x << 13);
+    v8 = v7 + (GAME_tile_to_world(unit->path_next_waypoint_tile_x));
     v9 = unit->stats;
     unit->order_next_waypoint_x = v8;
     if ( v9->is_infantry )
@@ -25309,7 +25093,7 @@ void __fastcall UNIT_obstacle_scan_finalize(Unit *unit)
     else
       v10 = v9->size != UnitSize_Regular ? 7424 : 4096;
     v11 = unit->entity;                         // INLINED 417980
-    unit->order_next_waypoint_y = v10 + (unit->path_next_waypoint_tile_y << 13);
+    unit->order_next_waypoint_y = v10 + (GAME_tile_to_world(unit->path_next_waypoint_tile_y));
     orientation = unit->orientation;
     unit->scan_pathing.cw_scan_x = v11->anim_speed;
     unit->multi_purpose_field_1 = 0;            // INLINED 417980 UNIT_scan_walk_restart
@@ -25364,7 +25148,7 @@ void __fastcall UNIT_mode_scan_tick(Unit *unit)
   MobdOrientation orientation; // eax
 
   entity = unit->entity;
-  if ( unit->path_scan_best_tile_x == entity->x >> 13 && unit->path_scan_best_tile_y == entity->y >> 13 )
+  if ( unit->path_scan_best_tile_x == GAME_world_to_tile(entity->x) && unit->path_scan_best_tile_y == GAME_world_to_tile(entity->y) )
   {
     unit->mode_return = UNIT_mode_idle_init;
     UNIT_mode_snap_fine_init(unit);
@@ -25565,8 +25349,8 @@ void __fastcall UNIT_mode_arrival_or_stuck(Unit *unit)
   if ( !UNIT_try_engage_target(unit) )
   {
     entity = unit->entity;
-    v3 = entity->x >> 13;
-    v4 = entity->y >> 13;
+    v3 = GAME_world_to_tile(entity->x);
+    v4 = GAME_world_to_tile(entity->y);
     if ( v3 == (int)unit->last_stuck_tile_x && v4 == (int)unit->last_stuck_tile_y )
     {
       ++unit->stuck_timer;
@@ -25811,7 +25595,7 @@ void __fastcall UNIT_begin_attack(Unit *unit)
     goto LABEL_29;
   }
   x = unit->entity->x;
-  v6 = (int)((x & 0xFFFFE000) - x + BOXD_adjust_unit_position_x(unit, unit->tile_position)) <= 0;
+  v6 = (int)((GAME_world_tile_floor(x)) - x + BOXD_adjust_unit_position_x(unit, unit->tile_position)) <= 0;
   v7 = unit->stats;
   is_infantry = v7->is_infantry;
   if ( v6 )
@@ -25820,7 +25604,7 @@ void __fastcall UNIT_begin_attack(Unit *unit)
       v11 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v11 = v7->size != UnitSize_Regular ? 7424 : 4096;
-    v10 = unit->entity->x - (unit->entity->x & 0xFFFFE000) - v11;
+    v10 = unit->entity->x - (GAME_world_tile_floor(unit->entity->x)) - v11;
   }
   else
   {
@@ -25828,7 +25612,7 @@ void __fastcall UNIT_begin_attack(Unit *unit)
       v9 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v9 = v7->size != UnitSize_Regular ? 7424 : 4096;
-    v10 = v9 + (unit->entity->x & 0xFFFFE000) - unit->entity->x;
+    v10 = v9 + (GAME_world_tile_floor(unit->entity->x)) - unit->entity->x;
   }
   if ( v10 <= 1792 )
   {
@@ -25838,18 +25622,18 @@ void __fastcall UNIT_begin_attack(Unit *unit)
         : v12->size != UnitSize_Regular
         ? 7424
         : 4096;
-    v14 = v13 + (unit->entity->y & 0xFFFFE000) - unit->entity->y;
+    v14 = v13 + (GAME_world_tile_floor(unit->entity->y)) - unit->entity->y;
     v15 = unit->stats;
     v16 = v15->is_infantry;
     if ( v14 <= 0 )
     {
       v19 = v16 ? BOXD_adjust_unit_position_y(unit, unit->tile_position) : v15->size != UnitSize_Regular ? 7424 : 4096;
-      v18 = unit->entity->y - (unit->entity->y & 0xFFFFE000) - v19;
+      v18 = unit->entity->y - (GAME_world_tile_floor(unit->entity->y)) - v19;
     }
     else
     {
       v17 = v16 ? BOXD_adjust_unit_position_y(unit, unit->tile_position) : v15->size != UnitSize_Regular ? 7424 : 4096;
-      v18 = v17 + (unit->entity->y & 0xFFFFE000) - unit->entity->y;
+      v18 = v17 + (GAME_world_tile_floor(unit->entity->y)) - unit->entity->y;
     }
     if ( v18 <= 1792 )
     {
@@ -25915,8 +25699,8 @@ LABEL_23:
     goto LABEL_23;
   }
   v3 = MATH_direction_to_orientation(
-         (unit->locked_target->entity->x - unit->entity->x) >> 8,
-         (unit->locked_target->entity->y - unit->entity->y) >> 8);
+         GAME_world_to_px(unit->locked_target->entity->x - unit->entity->x),
+         GAME_world_to_px(unit->locked_target->entity->y - unit->entity->y));
   stats = unit->stats;
   unit->orientation = v3;
   mobd_lookup_offset_attack = stats->mobd_lookup_offset_attack;
@@ -25945,34 +25729,29 @@ LABEL_23:
     task->ctx = unit->locked_target;
     v9->projectile_ctx.attacker = unit;
     v9->projectile_ctx.attacker_unit_id = unit->unit_id;
-    v9->infantry_damage = projectile->damage_to_infantry
-                        + ((projectile->damage_to_infantry * g_veterancy_damage_mod[unit->veterancy]) >> 8);
-    v9->vehicle_damage = projectile->damage_to_vehicles
-                       + ((projectile->damage_to_vehicles * g_veterancy_damage_mod[unit->veterancy]) >> 8);
-    v9->building_damage = projectile->damage_to_buildings
-                        + ((projectile->damage_to_buildings * g_veterancy_damage_mod[unit->veterancy]) >> 8);
+    ENT_set_projectile_damage(v9, projectile, unit->veterancy);
     TSK_send_message(unit->task, TaskMessage_Attacked, unit, unit->locked_target->task);
     TSK_yield(
       unit->task,
       TaskWait_Interval,
-      unit->stats->reload2_time - ((unit->stats->reload2_time * g_veterancy_reload_mod[unit->veterancy]) >> 8));
+      unit->stats->reload2_time - MUL_FP(unit->stats->reload2_time, g_veterancy_reload_mod[unit->veterancy]));
   }
   if ( unit->order == UnitOrder_AttackMove )
   {
     order_target_x = unit->order_target_x;
     entity = unit->entity;
-    v14 = entity->x >> 13;
-    if ( (order_target_x >> 13) - v14 <= 0 )
-      v15 = v14 - (unit->order_target_x >> 13);
+    v14 = GAME_world_to_tile(entity->x);
+    if ( (GAME_world_to_tile(order_target_x)) - v14 <= 0 )
+      v15 = v14 - (GAME_world_to_tile(unit->order_target_x));
     else
-      v15 = (unit->order_target_x >> 13) - v14;
+      v15 = (GAME_world_to_tile(unit->order_target_x)) - v14;
     y = entity->y;
     order_target_y = unit->order_target_y;
-    v18 = y >> 13;
-    if ( (order_target_y >> 13) - v18 <= 0 )
-      v19 = v18 - (unit->order_target_y >> 13);
+    v18 = GAME_world_to_tile(y);
+    if ( (GAME_world_to_tile(order_target_y)) - v18 <= 0 )
+      v19 = v18 - (GAME_world_to_tile(unit->order_target_y));
     else
-      v19 = (unit->order_target_y >> 13) - v18;
+      v19 = (GAME_world_to_tile(unit->order_target_y)) - v18;
     if ( v15 + v19 > 5 )
     {
       unit->order = UnitOrder_Move;
@@ -26572,8 +26351,8 @@ void __fastcall UNIT_tanker_dock_init(Unit *unit)
     entity = state->current_destination->entity;
     v8 = y + ENT_Y(entity);
     v9 = unit->entity;
-    v10 = v8 >> 13;
-    if ( ((v9->x ^ (x + entity->x)) & 0xFFFFE000) == 0 && v9->y >> 13 == v10 )
+    v10 = GAME_world_to_tile(v8);
+    if ( GAME_world_tile_floor(v9->x ^ (x + entity->x)) == 0 && GAME_world_to_tile(v9->y) == v10 )
       BOXD_remove_unit(unit, unit->map_x, unit->map_y, unit->tile_position);
   }
 }
@@ -26653,14 +26432,14 @@ void __fastcall UNIT_mode_tanker_snap_to_grid(Unit *unit)
     v6 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v6 = stats->size != UnitSize_Regular ? 7424 : 4096;
-  v7 = v6 + (unit->map_x << 13);
+  v7 = v6 + (GAME_tile_to_world(unit->map_x));
   v8 = unit->stats;
   if ( v8->is_infantry )
     v9 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
   else
     v9 = v8->size != UnitSize_Regular ? 7424 : 4096;
   v10 = unit->entity;
-  v11 = v9 + (unit->map_y << 13);
+  v11 = v9 + (GAME_tile_to_world(unit->map_y));
   x = v10->x;
   v13 = v7 - x;
   if ( v7 - x <= 0 )
@@ -27207,8 +26986,8 @@ void __fastcall UNIT_on_guard_area_order(Unit *unit, GuardAreaOrderPayload *orde
 
   if ( unit->player_num == order->player_num
     && (unit->order != UnitOrder_GuardArea
-     || ((order->dst_x ^ unit->order_target_x) & 0xFFFFE000) != 0
-     || ((order->dst_y ^ unit->order_target_y) & 0xFFFFE000) != 0) )
+     || (GAME_world_tile_floor(order->dst_x ^ unit->order_target_x)) != 0
+     || (GAME_world_tile_floor(order->dst_y ^ unit->order_target_y)) != 0) )
   {
     TSK_yield(unit->task, TaskWait_Interval, 1);
     stats = unit->stats;
@@ -27220,14 +26999,14 @@ void __fastcall UNIT_on_guard_area_order(Unit *unit, GuardAreaOrderPayload *orde
       v5 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v5 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    v6 = v5 + (order->dst_x & 0xFFFFE000);
+    v6 = v5 + (GAME_world_tile_floor(order->dst_x));
     v7 = unit->stats;
     unit->order_target_x = v6;
     if ( v7->is_infantry )
       v8 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       v8 = v7->size != UnitSize_Regular ? 7424 : 4096;
-    v9 = order->dst_y & 0xFFFFE000;
+    v9 = GAME_world_tile_floor(order->dst_y);
     unit->locked_target = nullptr;
     unit->order_target_y = v8 + v9;
     UNIT_mode_build_path(unit);
@@ -27246,8 +27025,8 @@ void __fastcall UNIT_on_move_while_in_repairbay(Unit *unit, MoveOrderPayload *or
 
   if ( unit->player_num == ordr->player_num
     && (unit->order != UnitOrder_Move
-     || ((ordr->dst_x ^ unit->order_target_x) & 0xFFFFE000) != 0
-     || ((ordr->dst_y ^ unit->order_target_y) & 0xFFFFE000) != 0) )
+     || (GAME_world_tile_floor(ordr->dst_x ^ unit->order_target_x)) != 0
+     || (GAME_world_tile_floor(ordr->dst_y ^ unit->order_target_y)) != 0) )
   {
     TSK_yield(unit->task, TaskWait_Interval, 1);
     stats = unit->stats;
@@ -27256,7 +27035,7 @@ void __fastcall UNIT_on_move_while_in_repairbay(Unit *unit, MoveOrderPayload *or
       v5 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v5 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    v6 = v5 + (ordr->dst_x & 0xFFFFE000);
+    v6 = v5 + (GAME_world_tile_floor(ordr->dst_x));
     v7 = unit->stats;
     unit->order_target_x = v6;
     if ( v7->is_infantry )
@@ -27266,7 +27045,7 @@ void __fastcall UNIT_on_move_while_in_repairbay(Unit *unit, MoveOrderPayload *or
     dst_y = ordr->dst_y;
     unit->locked_target = nullptr;
     unit->mode = UNIT_mode_repairbay_undock_init;
-    unit->order_target_y = v8 + (dst_y & 0xFFFFE000);
+    unit->order_target_y = v8 + (GAME_world_tile_floor(dst_y));
   }
 }
 
@@ -27288,15 +27067,15 @@ void __fastcall UNIT_on_move_order(Unit *unit, MoveOrderPayload *order)
   if ( unit->player_num == order->player_num )
   {
     v4 = unit->order == UnitOrder_Move
-      && ((order->dst_x ^ unit->order_target_x) & 0xFFFFE000) == 0
-      && ((order->dst_y ^ unit->order_target_y) & 0xFFFFE000) == 0;
+      && (GAME_world_tile_floor(order->dst_x ^ unit->order_target_x)) == 0
+      && (GAME_world_tile_floor(order->dst_y ^ unit->order_target_y)) == 0;
     if ( !v4 || unit->locked_target )
     {
       dst_x = order->dst_x;
-      if ( dst_x >= 0 && dst_x < g_map_num_tiles_x << 13 )
+      if ( dst_x >= 0 && dst_x < GAME_tile_to_world(g_map_num_tiles_x) )
       {
         dst_y = order->dst_y;
-        if ( dst_y >= 0 && dst_y < g_map_num_tiles_y << 13 )
+        if ( dst_y >= 0 && dst_y < GAME_tile_to_world(g_map_num_tiles_y) )
         {
           task = unit->task;
           unit->scan_pathing.push_through_timer = 0;
@@ -27314,14 +27093,14 @@ void __fastcall UNIT_on_move_order(Unit *unit, MoveOrderPayload *order)
             v10 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
           else
             v10 = stats->size != UnitSize_Regular ? 7424 : 4096;
-          v11 = v10 + (order->dst_x & 0xFFFFE000);
+          v11 = v10 + (GAME_world_tile_floor(order->dst_x));
           v12 = unit->stats;
           unit->order_target_x = v11;
           if ( v12->is_infantry )
             v13 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
           else
             v13 = v12->size != UnitSize_Regular ? 7424 : 4096;
-          unit->order_target_y = v13 + (order->dst_y & 0xFFFFE000);
+          unit->order_target_y = v13 + (GAME_world_tile_floor(order->dst_y));
           BOXD_adjust_xl_movement_destination(unit, &unit->order_target_x, &unit->order_target_y);
           unit->locked_target = nullptr;
           BOXD_pathing_set_friendly_mask(unit, 1);
@@ -27482,8 +27261,8 @@ void __fastcall UNIT_on_attacked_default(Unit *unit, Unit *attacker)
     || (type == UnitType_Surv_Technician && unit->order == UnitOrder_RepairInfiltrate)
     || (type == UnitType_Mute_Makanik && unit->order == UnitOrder_RepairInfiltrate)
     || unit->order > UnitOrder_Move
-    || (entity = unit->entity, ((entity->x ^ unit->order_target_x) & 0xFFFFE000) != 0)
-    || ((entity->y ^ unit->order_target_y) & 0xFFFFE000) != 0 )
+    || (entity = unit->entity, (GAME_world_tile_floor(entity->x ^ unit->order_target_x)) != 0)
+    || (GAME_world_tile_floor(entity->y ^ unit->order_target_y)) != 0 )
   {
     unit->opportunity_target = attacker;
     unit->opportunity_target_id = attacker->unit_id;
@@ -27582,14 +27361,14 @@ void __fastcall UNIT_on_retreat(Unit *unit)
       v5 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v5 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    v6 = v5 + (unit->entity->x & 0xFFFFE000);
+    v6 = v5 + (GAME_world_tile_floor(unit->entity->x));
     v7 = unit->stats;
     unit->order_next_waypoint_x = v6;
     if ( v7->is_infantry )
       v8 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       v8 = v7->size != UnitSize_Regular ? 7424 : 4096;
-    v9 = unit->entity->y & 0xFFFFE000;
+    v9 = GAME_world_tile_floor(unit->entity->y);
     unit->order = UnitOrder_Move;
     unit->order_next_waypoint_y = v8 + v9;
     UNIT_mode_build_path(unit);
@@ -27630,10 +27409,10 @@ void __fastcall UNIT_enqueue_move_order(Unit *unit, MoveOrderPayload *order)
   if ( unit->player_num == order->player_num )
   {
     dst_x = order->dst_x;
-    if ( dst_x >= 0 && dst_x < g_map_num_tiles_x << 13 )
+    if ( dst_x >= 0 && dst_x < GAME_tile_to_world(g_map_num_tiles_x) )
     {
       dst_y = order->dst_y;
-      if ( dst_y >= 0 && dst_y < g_map_num_tiles_y << 13 )
+      if ( dst_y >= 0 && dst_y < GAME_tile_to_world(g_map_num_tiles_y) )
       {
         stats = unit->stats;
         unit->next_order = 1;
@@ -27641,14 +27420,14 @@ void __fastcall UNIT_enqueue_move_order(Unit *unit, MoveOrderPayload *order)
           v7 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
         else
           v7 = stats->size != UnitSize_Regular ? 7424 : 4096;
-        v8 = v7 + (order->dst_x & 0xFFFFE000);
+        v8 = v7 + (GAME_world_tile_floor(order->dst_x));
         v9 = unit->stats;
         unit->next_order_target_x = v8;
         if ( v9->is_infantry )
           v10 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
         else
           v10 = v9->size != UnitSize_Regular ? 7424 : 4096;
-        unit->next_order_target_y = v10 + (order->dst_y & 0xFFFFE000);
+        unit->next_order_target_y = v10 + (GAME_world_tile_floor(order->dst_y));
         BOXD_adjust_xl_movement_destination(unit, &unit->next_order_target_x, &unit->next_order_target_y);
       }
     }
@@ -28295,10 +28074,10 @@ BOOL __fastcall BOXD_is_in_line_of_sight(Unit *a, Unit *b)
         v7 = v5->y;
         if ( v7 >= 0 && v7 < g_map_height )
         {
-          v8 = x >> 13;
-          v9 = v6 >> 13;
-          v10 = y >> 13;
-          v11 = v7 >> 13;
+          v8 = GAME_world_to_tile(x);
+          v9 = GAME_world_to_tile(v6);
+          v10 = GAME_world_to_tile(y);
+          v11 = GAME_world_to_tile(v7);
           if ( v8 == v9 && v10 == v11 )
             return 1;
           v13 = g_map_num_tiles_x;
@@ -28591,14 +28370,14 @@ BoxdRaycastResult __fastcall BOXD_build_path_to(Unit *unit, int target_x, int ta
   unit->scan_pathing.ray_stack = 0;
   if ( ray_start_y > target_y )
   {
-    dx = (target_x - ray_start_x) >> 8;
-    dy = (ray_start_y - target_y) >> 8;
+    dx = GAME_world_to_px(target_x - ray_start_x);
+    dy = GAME_world_to_px(ray_start_y - target_y);
     if ( dx <= 0 )
     {
       v17 = unit;
       y_step = -256;
       x_step = -256;
-      abs_dy = (ray_start_y - target_y) >> 8;
+      abs_dy = GAME_world_to_px(ray_start_y - target_y);
       abs_dx = -dx;
       if ( -dx > dy )
         return BOXD_path_builder_raycast_x_major(ray_start_x, ray_start_y, abs_dx, abs_dy, x_step, y_step, v17);
@@ -28608,7 +28387,7 @@ BoxdRaycastResult __fastcall BOXD_build_path_to(Unit *unit, int target_x, int ta
       v17 = unit;
       y_step = -256;
       x_step = 256;
-      abs_dy = (ray_start_y - target_y) >> 8;
+      abs_dy = GAME_world_to_px(ray_start_y - target_y);
       abs_dx = dx;
       if ( dx > dy )
         return BOXD_path_builder_raycast_x_major(ray_start_x, ray_start_y, abs_dx, abs_dy, x_step, y_step, v17);
@@ -28616,14 +28395,14 @@ BoxdRaycastResult __fastcall BOXD_build_path_to(Unit *unit, int target_x, int ta
   }
   else
   {
-    dx_ = (target_x - ray_start_x) >> 8;
-    dy_ = (target_y - ray_start_y) >> 8;
+    dx_ = GAME_world_to_px(target_x - ray_start_x);
+    dy_ = GAME_world_to_px(target_y - ray_start_y);
     if ( dx_ <= 0 )
     {
       v17 = unit;
       y_step = 256;
       x_step = -256;
-      abs_dy = (target_y - ray_start_y) >> 8;
+      abs_dy = GAME_world_to_px(target_y - ray_start_y);
       abs_dx = -dx_;
       if ( -dx_ > dy_ )
         return BOXD_path_builder_raycast_x_major(ray_start_x, ray_start_y, abs_dx, abs_dy, x_step, y_step, v17);
@@ -28633,7 +28412,7 @@ BoxdRaycastResult __fastcall BOXD_build_path_to(Unit *unit, int target_x, int ta
       v17 = unit;
       y_step = 256;
       x_step = 256;
-      abs_dy = (target_y - ray_start_y) >> 8;
+      abs_dy = GAME_world_to_px(target_y - ray_start_y);
       abs_dx = dx_;
       if ( dx_ > dy_ )
         return BOXD_path_builder_raycast_x_major(ray_start_x, ray_start_y, abs_dx, abs_dy, x_step, y_step, v17);
@@ -28680,10 +28459,10 @@ BoxdRaycastResult __fastcall BOXD_path_builder_raycast_x_major(
 
   unit->scan_pathing.first_clear_tile_y = 0;
   unit->scan_pathing.first_clear_tile_x = 0;
-  v19 = ray_start_y >> 13;
-  v7 = ray_start_x >> 13;
+  v19 = GAME_world_to_tile(ray_start_y);
+  v7 = GAME_world_to_tile(ray_start_x);
   v23 = ray_start_y;
-  tile = &g_terrain[(ray_start_x >> 13) + g_map_num_tiles_x * (ray_start_y >> 13)];
+  tile = &g_terrain[(GAME_world_to_tile(ray_start_x)) + g_map_num_tiles_x * (GAME_world_to_tile(ray_start_y))];
   error_inc_straight = 2 * abs_dy;
   error_inc_diagonal = 2 * abs_dy - 2 * abs_dx;
   bresenham_error = 2 * abs_dy - abs_dx;
@@ -28728,11 +28507,11 @@ BoxdRaycastResult __fastcall BOXD_path_builder_raycast_x_major(
     }
     ray_start_x += x_step;
     v24 = v11 + bresenham_error;
-    map_x = ray_start_x >> 13;
-    map_y = ray_start_y >> 13;
-    v14 = ray_start_x >> 13 <= v7;
+    map_x = GAME_world_to_tile(ray_start_x);
+    map_y = GAME_world_to_tile(ray_start_y);
+    v14 = GAME_world_to_tile(ray_start_x) <= v7;
     v26 = ray_start_x;
-    if ( ray_start_x >> 13 == v7 )
+    if ( GAME_world_to_tile(ray_start_x) == v7 )
     {
       if ( map_y == v19 )
         goto LABEL_22;
@@ -28749,8 +28528,8 @@ BoxdRaycastResult __fastcall BOXD_path_builder_raycast_x_major(
       tile += g_map_num_tiles_x;
     if ( map_y < v19 )
       tile -= g_map_num_tiles_x;
-    v7 = ray_start_x >> 13;
-    v19 = ray_start_y >> 13;
+    v7 = GAME_world_to_tile(ray_start_x);
+    v19 = GAME_world_to_tile(ray_start_y);
     boxd_class = BOXD_classify_tile_for_pathing(unit, map_x, map_y, tile);
     if ( BOXD_path_builder_classify_step(
            &phase,
@@ -28822,10 +28601,10 @@ BoxdRaycastResult __fastcall BOXD_path_builder_raycast_y_major(
 
   unit->scan_pathing.first_clear_tile_y = 0;
   unit->scan_pathing.first_clear_tile_x = 0;
-  v19 = ray_start_y >> 13;
-  v7 = ray_start_x >> 13;
+  v19 = GAME_world_to_tile(ray_start_y);
+  v7 = GAME_world_to_tile(ray_start_x);
   v23 = ray_start_x;
-  tile = &g_terrain[(ray_start_x >> 13) + g_map_num_tiles_x * (ray_start_y >> 13)];
+  tile = &g_terrain[(GAME_world_to_tile(ray_start_x)) + g_map_num_tiles_x * (GAME_world_to_tile(ray_start_y))];
   error_inc_straight = 2 * abs_dx;
   error_inc_diagonal = 2 * abs_dx - 2 * abs_dy;
   bresenham_error = 2 * abs_dx - abs_dy;
@@ -28870,11 +28649,11 @@ BoxdRaycastResult __fastcall BOXD_path_builder_raycast_y_major(
     }
     v24 = v11 + bresenham_error;
     ray_start_y += y_step;
-    map_x = ray_start_x >> 13;
-    map_y = ray_start_y >> 13;
-    v14 = ray_start_x >> 13 <= v7;
+    map_x = GAME_world_to_tile(ray_start_x);
+    map_y = GAME_world_to_tile(ray_start_y);
+    v14 = GAME_world_to_tile(ray_start_x) <= v7;
     v26 = ray_start_y;
-    if ( ray_start_x >> 13 == v7 )
+    if ( GAME_world_to_tile(ray_start_x) == v7 )
     {
       if ( map_y == v19 )
         goto LABEL_22;
@@ -28891,8 +28670,8 @@ BoxdRaycastResult __fastcall BOXD_path_builder_raycast_y_major(
       tile += g_map_num_tiles_x;
     if ( map_y < v19 )
       tile -= g_map_num_tiles_x;
-    v7 = ray_start_x >> 13;
-    v19 = ray_start_y >> 13;
+    v7 = GAME_world_to_tile(ray_start_x);
+    v19 = GAME_world_to_tile(ray_start_y);
     boxd_class = BOXD_classify_tile_for_pathing(unit, map_x, map_y, tile);
     if ( BOXD_path_builder_classify_step(
            &phase,
@@ -29107,14 +28886,14 @@ BOOL __fastcall BOXD_can_path_to_regular(int start_x, int start_y, int target_x,
 
   if ( start_y > target_y )
   {
-    dx = (target_x - start_x) >> 8;
-    dy = (start_y - target_y) >> 8;
+    dx = GAME_world_to_px(target_x - start_x);
+    dy = GAME_world_to_px(start_y - target_y);
     if ( dx <= 0 )
     {
       v14 = unit;
       y_step = -256;
       x_step = -256;
-      abs_dy = (start_y - target_y) >> 8;
+      abs_dy = GAME_world_to_px(start_y - target_y);
       abs_dx = -dx;
       if ( -dx > dy )
         return BOXD_can_path_to_x_major(start_x, start_y, abs_dx, abs_dy, x_step, y_step, v14);
@@ -29124,22 +28903,22 @@ BOOL __fastcall BOXD_can_path_to_regular(int start_x, int start_y, int target_x,
       v14 = unit;
       y_step = -256;
       x_step = 256;
-      abs_dy = (start_y - target_y) >> 8;
-      abs_dx = (target_x - start_x) >> 8;
+      abs_dy = GAME_world_to_px(start_y - target_y);
+      abs_dx = GAME_world_to_px(target_x - start_x);
       if ( dx > dy )
         return BOXD_can_path_to_x_major(start_x, start_y, abs_dx, abs_dy, x_step, y_step, v14);
     }
   }
   else
   {
-    dx_ = (target_x - start_x) >> 8;
-    dy_ = (target_y - start_y) >> 8;
+    dx_ = GAME_world_to_px(target_x - start_x);
+    dy_ = GAME_world_to_px(target_y - start_y);
     if ( dx_ <= 0 )
     {
       v14 = unit;
       y_step = 256;
       x_step = -256;
-      abs_dy = (target_y - start_y) >> 8;
+      abs_dy = GAME_world_to_px(target_y - start_y);
       abs_dx = -dx_;
       if ( -dx_ > dy_ )
         return BOXD_can_path_to_x_major(start_x, start_y, abs_dx, abs_dy, x_step, y_step, v14);
@@ -29149,8 +28928,8 @@ BOOL __fastcall BOXD_can_path_to_regular(int start_x, int start_y, int target_x,
       v14 = unit;
       y_step = 256;
       x_step = 256;
-      abs_dy = (target_y - start_y) >> 8;
-      abs_dx = (target_x - start_x) >> 8;
+      abs_dy = GAME_world_to_px(target_y - start_y);
+      abs_dx = GAME_world_to_px(target_x - start_x);
       if ( dx_ > dy_ )
         return BOXD_can_path_to_x_major(start_x, start_y, abs_dx, abs_dy, x_step, y_step, v14);
     }
@@ -29174,22 +28953,22 @@ BOOL __fastcall BOXD_can_path_to_xl(int start_x, int start_y, int target_x, int 
 
   if ( start_y > target_y )
   {
-    dx = (target_x - start_x) >> 8;
-    abs_dy = (start_y - target_y) >> 8;
+    dx = GAME_world_to_px(target_x - start_x);
+    abs_dy = GAME_world_to_px(start_y - target_y);
     if ( dx <= 0 )
     {
       abs_dx = -dx;
       if ( abs_dx <= abs_dy )
       {
-        if ( BOXD_can_path_to_y_major(start_x - 4096, start_y + 4096, abs_dx, abs_dy, -256, -256, unit)
-          && BOXD_can_path_to_y_major(start_x + 4096, start_y - 4096, abs_dx, abs_dy, -256, -256, unit)
+        if ( BOXD_can_path_to_y_major(start_x - WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, abs_dx, abs_dy, -256, -256, unit)
+          && BOXD_can_path_to_y_major(start_x + WORLD_HALF_TILE, start_y - WORLD_HALF_TILE, abs_dx, abs_dy, -256, -256, unit)
           && BOXD_can_path_to_y_major(start_x, start_y, abs_dx, abs_dy, -256, -256, unit) )
         {
           return 1;
         }
       }
-      else if ( BOXD_can_path_to_x_major(start_x + 4096, start_y - 4096, abs_dx, abs_dy, -256, -256, unit)
-             && BOXD_can_path_to_x_major(start_x - 4096, start_y + 4096, abs_dx, abs_dy, -256, -256, unit)
+      else if ( BOXD_can_path_to_x_major(start_x + WORLD_HALF_TILE, start_y - WORLD_HALF_TILE, abs_dx, abs_dy, -256, -256, unit)
+             && BOXD_can_path_to_x_major(start_x - WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, abs_dx, abs_dy, -256, -256, unit)
              && BOXD_can_path_to_x_major(start_x, start_y, abs_dx, abs_dy, -256, -256, unit) )
       {
         return 1;
@@ -29197,19 +28976,19 @@ BOOL __fastcall BOXD_can_path_to_xl(int start_x, int start_y, int target_x, int 
     }
     else
     {
-      v15 = start_y - 4096;
-      v16 = start_x - 4096;
+      v15 = start_y - WORLD_HALF_TILE;
+      v16 = start_x - WORLD_HALF_TILE;
       if ( dx <= abs_dy )
       {
         if ( BOXD_can_path_to_y_major(v16, v15, dx, abs_dy, 256, -256, unit)
-          && BOXD_can_path_to_y_major(start_x + 4096, start_y + 4096, dx, abs_dy, 256, -256, unit)
+          && BOXD_can_path_to_y_major(start_x + WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, dx, abs_dy, 256, -256, unit)
           && BOXD_can_path_to_y_major(start_x, start_y, dx, abs_dy, 256, -256, unit) )
         {
           return 1;
         }
       }
       else if ( BOXD_can_path_to_x_major(v16, v15, dx, abs_dy, 256, -256, unit)
-             && BOXD_can_path_to_x_major(start_x + 4096, start_y + 4096, dx, abs_dy, 256, -256, unit)
+             && BOXD_can_path_to_x_major(start_x + WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, dx, abs_dy, 256, -256, unit)
              && BOXD_can_path_to_x_major(start_x, start_y, dx, abs_dy, 256, -256, unit) )
       {
         return 1;
@@ -29218,24 +28997,24 @@ BOOL __fastcall BOXD_can_path_to_xl(int start_x, int start_y, int target_x, int 
   }
   else
   {
-    dx_ = (target_x - start_x) >> 8;
-    abs_dy_ = (target_y - start_y) >> 8;
+    dx_ = GAME_world_to_px(target_x - start_x);
+    abs_dy_ = GAME_world_to_px(target_y - start_y);
     if ( dx_ <= 0 )
     {
-      v10 = start_y - 4096;
+      v10 = start_y - WORLD_HALF_TILE;
       abs_dx_ = -dx_;
-      v12 = start_x - 4096;
+      v12 = start_x - WORLD_HALF_TILE;
       if ( abs_dx_ <= abs_dy_ )
       {
         if ( BOXD_can_path_to_y_major(v12, v10, abs_dx_, abs_dy_, -256, 256, unit)
-          && BOXD_can_path_to_y_major(start_x + 4096, start_y + 4096, abs_dx_, abs_dy_, -256, 256, unit)
+          && BOXD_can_path_to_y_major(start_x + WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, abs_dx_, abs_dy_, -256, 256, unit)
           && BOXD_can_path_to_y_major(start_x, start_y, abs_dx_, abs_dy_, -256, 256, unit) )
         {
           return 1;
         }
       }
       else if ( BOXD_can_path_to_x_major(v12, v10, abs_dx_, abs_dy_, -256, 256, unit)
-             && BOXD_can_path_to_x_major(start_x + 4096, start_y + 4096, abs_dx_, abs_dy_, -256, 256, unit)
+             && BOXD_can_path_to_x_major(start_x + WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, abs_dx_, abs_dy_, -256, 256, unit)
              && BOXD_can_path_to_x_major(start_x, start_y, abs_dx_, abs_dy_, -256, 256, unit) )
       {
         return 1;
@@ -29243,15 +29022,15 @@ BOOL __fastcall BOXD_can_path_to_xl(int start_x, int start_y, int target_x, int 
     }
     else if ( dx_ <= abs_dy_ )
     {
-      if ( BOXD_can_path_to_y_major(start_x - 4096, start_y + 4096, dx_, abs_dy_, 256, 256, unit)
-        && BOXD_can_path_to_y_major(start_x + 4096, start_y - 4096, dx_, abs_dy_, 256, 256, unit)
+      if ( BOXD_can_path_to_y_major(start_x - WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, dx_, abs_dy_, 256, 256, unit)
+        && BOXD_can_path_to_y_major(start_x + WORLD_HALF_TILE, start_y - WORLD_HALF_TILE, dx_, abs_dy_, 256, 256, unit)
         && BOXD_can_path_to_y_major(start_x, start_y, dx_, abs_dy_, 256, 256, unit) )
       {
         return 1;
       }
     }
-    else if ( BOXD_can_path_to_x_major(start_x + 4096, start_y - 4096, dx_, abs_dy_, 256, 256, unit)
-           && BOXD_can_path_to_x_major(start_x - 4096, start_y + 4096, dx_, abs_dy_, 256, 256, unit)
+    else if ( BOXD_can_path_to_x_major(start_x + WORLD_HALF_TILE, start_y - WORLD_HALF_TILE, dx_, abs_dy_, 256, 256, unit)
+           && BOXD_can_path_to_x_major(start_x - WORLD_HALF_TILE, start_y + WORLD_HALF_TILE, dx_, abs_dy_, 256, 256, unit)
            && BOXD_can_path_to_x_major(start_x, start_y, dx_, abs_dy_, 256, 256, unit) )
     {
       return 1;
@@ -29293,8 +29072,8 @@ BOOL __fastcall BOXD_can_path_to_x_major(
   int a4a; // [esp+2Ch] [ebp+8h]
   Unit *unita; // [esp+38h] [ebp+14h]
 
-  map_x = ray_start_x >> 13;
-  map_y = ray_start_y >> 13;
+  map_x = GAME_world_to_tile(ray_start_x);
+  map_y = GAME_world_to_tile(ray_start_y);
   v23 = ray_start_y;
   v24 = ray_start_x;
   if ( x_step <= 0 )
@@ -29319,8 +29098,8 @@ BOOL __fastcall BOXD_can_path_to_x_major(
     return 0;
   }
   entity = unit->entity;
-  v27 = entity->y >> 13;
-  v26 = entity->x >> 13;
+  v27 = GAME_world_to_tile(entity->y);
+  v26 = GAME_world_to_tile(entity->x);
   v15 = &g_terrain[map_x + g_map_num_tiles_x * map_y];
   switch ( BOXD_classify_tile_simple(unit, v15) )
   {
@@ -29358,9 +29137,9 @@ LABEL_19:
     }
     unita = (Unit *)(v19 + v17);
     v24 += x_step;
-    v20 = v24 >> 13;
-    v21 = v23 >> 13;
-    if ( v24 >> 13 != map_x || v21 != map_y )
+    v20 = GAME_world_to_tile(v24);
+    v21 = GAME_world_to_tile(v23);
+    if ( GAME_world_to_tile(v24) != map_x || v21 != map_y )
       break;
 LABEL_39:
     v18 = a3a-- == 0;
@@ -29382,8 +29161,8 @@ LABEL_39:
       v15 += g_map_num_tiles_x;
     if ( v21 < map_y )
       v15 -= g_map_num_tiles_x;
-    map_y = v23 >> 13;
-    map_x = v24 >> 13;
+    map_y = GAME_world_to_tile(v23);
+    map_x = GAME_world_to_tile(v24);
     switch ( BOXD_classify_tile_simple(unit, v15) )
     {
       case Boxd_PartiallyOccupied:
@@ -29436,8 +29215,8 @@ BOOL __fastcall BOXD_can_path_to_y_major(
   int a4a; // [esp+2Ch] [ebp+8h]
   Unit *a7a; // [esp+38h] [ebp+14h]
 
-  map_x = ray_start_x >> 13;
-  map_y = ray_start_y >> 13;
+  map_x = GAME_world_to_tile(ray_start_x);
+  map_y = GAME_world_to_tile(ray_start_y);
   v24 = ray_start_y;
   v23 = ray_start_x;
   if ( x_step <= 0 )
@@ -29462,8 +29241,8 @@ BOOL __fastcall BOXD_can_path_to_y_major(
     return 0;
   }
   entity = unit->entity;
-  v27 = entity->y >> 13;
-  v26 = entity->x >> 13;
+  v27 = GAME_world_to_tile(entity->y);
+  v26 = GAME_world_to_tile(entity->x);
   v15 = &g_terrain[map_x + g_map_num_tiles_x * map_y];
   switch ( BOXD_classify_tile_simple(unit, v15) )
   {
@@ -29501,9 +29280,9 @@ LABEL_19:
     }
     a7a = (Unit *)(v19 + v17);
     v24 += y_step;
-    v20 = v23 >> 13;
-    v21 = v24 >> 13;
-    if ( v23 >> 13 != map_x || v21 != map_y )
+    v20 = GAME_world_to_tile(v23);
+    v21 = GAME_world_to_tile(v24);
+    if ( GAME_world_to_tile(v23) != map_x || v21 != map_y )
       break;
 LABEL_39:
     v18 = a4a-- == 0;
@@ -29525,8 +29304,8 @@ LABEL_39:
       v15 += g_map_num_tiles_x;
     if ( v21 < map_y )
       v15 -= g_map_num_tiles_x;
-    map_y = v24 >> 13;
-    map_x = v23 >> 13;
+    map_y = GAME_world_to_tile(v24);
+    map_x = GAME_world_to_tile(v23);
     switch ( BOXD_classify_tile_simple(unit, v15) )
     {
       case Boxd_PartiallyOccupied:
@@ -30838,7 +30617,7 @@ LABEL_131:
         case UnitType_Mute_Wasp:
         case UnitType_Surv_Bomber:
           unit->entity->rn->transform = (RenderTransform)REND_transform_airborne;
-          UNIT_bomber_add(unit);
+          UNIT_bomber_init(unit);
           unit->state = nullptr;
           UNIT_bomber_status_bar_init(unit);
           goto LABEL_207;
@@ -31164,7 +30943,7 @@ LABEL_41:
       v4 = nullptr;
     if ( !v4 )
       return 0;
-    if ( *data == -1 || (v5 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
+    if ( *data == -1 || (v5 = g_unit_list_head, g_unit_list_head == (Unit *)END(g_unit_list)) )
     {
 LABEL_11:
       v5 = nullptr;
@@ -31174,7 +30953,7 @@ LABEL_11:
       while ( v5->unit_id != *data )
       {
         v5 = v5->next;
-        if ( v5 == (Unit *)&g_unit_list_head )
+        if ( v5 == (Unit *)END(g_unit_list) )
           goto LABEL_11;
       }
     }
@@ -31272,7 +31051,7 @@ LABEL_11:
             &g_cash.cash[v19->factory->player_num],
             &v19->state,
             v19->base_cost,
-            (v20 << 8) / v19->production_time,
+            RATE_FP(v20, v19->production_time),
             g_game_update_loop_task,
             v19,
             v19->key);
@@ -31361,7 +31140,7 @@ void __fastcall SAVE_unpack_squad_node(
 
   v3 = g_unit_list_head;
   enemy_target_unit_id = data->enemy_target_unit_id;
-  if ( enemy_target_unit_id == -1 || (v5 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
+  if ( enemy_target_unit_id == -1 || (v5 = g_unit_list_head, g_unit_list_head == (Unit *)END(g_unit_list)) )
   {
 LABEL_5:
     v5 = nullptr;
@@ -31371,12 +31150,12 @@ LABEL_5:
     while ( v5->unit_id != enemy_target_unit_id )
     {
       v5 = v5->next;
-      if ( v5 == (Unit *)&g_unit_list_head )
+      if ( v5 == (Unit *)END(g_unit_list) )
         goto LABEL_5;
     }
   }
   attacker_head_unit_id = data->attacker_head_unit_id;
-  if ( attacker_head_unit_id == -1 || g_unit_list_head == (Unit *)&g_unit_list_head )
+  if ( attacker_head_unit_id == -1 || g_unit_list_head == (Unit *)END(g_unit_list) )
   {
 LABEL_10:
     v3 = nullptr;
@@ -31386,7 +31165,7 @@ LABEL_10:
     while ( v3->unit_id != attacker_head_unit_id )
     {
       v3 = v3->next;
-      if ( v3 == (Unit *)&g_unit_list_head )
+      if ( v3 == (Unit *)END(g_unit_list) )
         goto LABEL_10;
     }
   }
@@ -32866,7 +32645,7 @@ BOOL __fastcall SAVE_unpack_meta(MetaSaveStruct *data)
   g_num_convoy_tankers_destroyed = data->victory_condition_bits;
   g_num_convoy_tankers_en_route = data->num_convoy_tankers_en_route;
   scout_unit_id = data->scout_unit_id;
-  if ( scout_unit_id == -1 || (v4 = g_unit_list_head, g_unit_list_head == (Unit *)&g_unit_list_head) )
+  if ( scout_unit_id == -1 || (v4 = g_unit_list_head, g_unit_list_head == (Unit *)END(g_unit_list)) )
   {
 LABEL_5:
     v4 = nullptr;
@@ -32876,7 +32655,7 @@ LABEL_5:
     while ( v4->unit_id != scout_unit_id )
     {
       v4 = v4->next;
-      if ( v4 == (Unit *)&g_unit_list_head )
+      if ( v4 == (Unit *)END(g_unit_list) )
         goto LABEL_5;
     }
   }
@@ -32890,7 +32669,7 @@ LABEL_5:
   player_bases_unit_ids = data->player_bases_unit_ids;
   do
   {
-    if ( *player_bases_unit_ids == -1 || (v7 = v2, v2 == (Unit *)&g_unit_list_head) )
+    if ( *player_bases_unit_ids == -1 || (v7 = v2, v2 == (Unit *)END(g_unit_list)) )
     {
 LABEL_13:
       v7 = nullptr;
@@ -32900,7 +32679,7 @@ LABEL_13:
       while ( v7->unit_id != *player_bases_unit_ids )
       {
         v7 = v7->next;
-        if ( v7 == (Unit *)&g_unit_list_head )
+        if ( v7 == (Unit *)END(g_unit_list) )
           goto LABEL_13;
       }
     }
@@ -32962,11 +32741,11 @@ LABEL_13:
           task->ctx = v13;
           v13->task->entity = v13->counter;
           v13->counter->task = v13->task;
-          ENT_X(v13->button) = 0x26000;
-          ENT_Y(v13->button) = 0x12000;
+          ENT_X(v13->button) = GAME_px_to_world(608);
+          ENT_Y(v13->button) = GAME_px_to_world(288);
           v13->button->z = 2;
-          ENT_X(v13->counter) = 0x26400;
-          ENT_Y(v13->counter) = 0x13800;
+          ENT_X(v13->counter) = GAME_px_to_world(612);
+          ENT_Y(v13->counter) = GAME_px_to_world(312);
           v13->counter->z = 3;
           v13->counter->rn->transform = (RenderTransform)REND_transform_ui;
           if ( v13->num_airstrikes_available <= 1 )
@@ -33056,7 +32835,7 @@ BOOL GAME_save()
     g_last_error = "Could not save oil information";
     goto save_done;
   }
-  for ( i = g_unit_list_head; i != (Unit *)&g_unit_list_head; i = i->next )
+  for ( i = g_unit_list_head; i != (Unit *)END(g_unit_list); i = i->next )
   {
     if ( !i->destroyed )
     {
@@ -33122,7 +32901,7 @@ BOOL GAME_save()
   // tanker/convoy/building) never surfaced this.
   p_size = v28;
   v9 = v23;
-  for ( v8 = g_unit_list_head; v8 != (Unit *)&g_unit_list_head; v8 = v8->next )
+  for ( v8 = g_unit_list_head; v8 != (Unit *)END(g_unit_list); v8 = v8->next )
   {
     if ( !v8->destroyed )
     {
@@ -33181,7 +32960,7 @@ BOOL GAME_save()
 
   // one unit id per live unit, then the -1 terminator and the max record size
   v17 = v28;
-  for ( v16 = g_unit_list_head; v16 != (Unit *)&g_unit_list_head; v16 = v16->next )
+  for ( v16 = g_unit_list_head; v16 != (Unit *)END(g_unit_list); v16 = v16->next )
   {
     if ( !v16->destroyed )
     {
@@ -33196,7 +32975,7 @@ BOOL GAME_save()
   // one length-prefixed record per live unit, in list order
   v17 = v28;
   v19 = v23;
-  for ( v18 = g_unit_list_head; v18 != (Unit *)&g_unit_list_head; v18 = v18->next )
+  for ( v18 = g_unit_list_head; v18 != (Unit *)END(g_unit_list); v18 = v18->next )
   {
     if ( !v18->destroyed )
     {
@@ -33530,10 +33309,7 @@ void __fastcall MSG_machine_shop_upgrades(
   state->upgrade_level = min(5, state->upgrade_level + 1);
   if ( unit->player_num == g_player_num )
   {
-    g_machineshop_levels.num_buildings_by_level[state->upgrade_level - 1] -= 1;
-    g_machineshop_levels.num_buildings_by_level[state->upgrade_level] += 1;
-    if ( state->upgrade_level > g_machineshop_levels.max_level )
-      g_machineshop_levels.max_level = state->upgrade_level;
+    TECHLVL_advance(&g_machineshop_levels, state->upgrade_level);
     switch ( state->upgrade_level )
     {
       case 2:
@@ -33691,22 +33467,22 @@ void __fastcall UNIT_mode_machine_shop_on_complete(Unit *unit)
     v4 = UI_sidebar_prod_enable_category(unit, ProductionType_Vehicles);
     state->prod = v4;
     v5 = g_current_lvl_id;
-    if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x4000) == 0 )
+    if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_BIKE_SIDECAR) == 0 )
     {
       UI_sidebar_prod_enable_unit(v4, UnitType_Surv_DirkBike, 2592);
       v5 = g_current_lvl_id;
     }
-    if ( (g_lvl_desc[v5].disabled_units_mask & 0x8000) == 0 )
+    if ( (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_DIRE_WOLF) == 0 )
     {
       UI_sidebar_prod_enable_unit(v4, UnitType_Surv_4x4Pickup, 2584);
       v5 = g_current_lvl_id;
     }
-    if ( (g_lvl_desc[v5].disabled_units_mask & 0x10000) == 0 )
+    if ( (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_GIANT_SCORPION) == 0 )
     {
       UI_sidebar_prod_enable_unit(v4, UnitType_Surv_Atv, 2576);
       v5 = g_current_lvl_id;
     }
-    if ( (g_lvl_desc[v5].disabled_units_mask & 0x20000) == 0 )
+    if ( (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_MOBILE_DERRICK) == 0 )
       UI_sidebar_prod_enable_unit(v4, UnitType_Surv_MobileDerrick, 2228);
     ++g_machineshop_levels.num_buildings_by_level[1];
   }
@@ -33717,41 +33493,27 @@ void __fastcall UNIT_mode_machine_shop_on_complete(Unit *unit)
 }
 
 //----- (00422330) --------------------------------------------------------
-void __fastcall UNIT_mode_machine_shop_downgrade_production(Unit *this)
+void __fastcall UNIT_mode_machine_shop_downgrade_production(Unit *unit)
 {
-  BuildingState *state; // esi
-  int max_level; // edx
-  int upgrade_level; // eax
-  int *v4; // ecx
-  int v5; // edx
-  SidebarFactoryProduction *prod; // ecx
+  BuildingState *state = (BuildingState *)unit->state;
+  if(unit->player_num != g_player_num)
+    return;
 
-  state = (BuildingState *)this->state;
-  if ( g_player_num == this->player_num )
-  {
-    max_level = g_machineshop_levels.max_level;
-    --g_machineshop_levels.num_buildings_by_level[state->upgrade_level];
-    upgrade_level = state->upgrade_level;
-    if ( upgrade_level == max_level && !g_machineshop_levels.num_buildings_by_level[upgrade_level] )
-    {
-      if ( upgrade_level > 0 )
-      {
-        v4 = &g_machineshop_levels.num_buildings_by_level[upgrade_level];
-        do
-        {
-          v5 = *--v4;
-          --upgrade_level;
-        }
-        while ( !v5 && upgrade_level > 0 );
-      }
-      g_machineshop_levels.max_level = upgrade_level;
+  int level = state->upgrade_level;
+  bool was_max_level = level == g_machineshop_levels.max_level;
+  --g_machineshop_levels.num_buildings_by_level[level];
+
+  if(was_max_level && 0 == g_machineshop_levels.num_buildings_by_level[level]) {
+    int next_max_level = level;
+    for(; next_max_level > 0; --next_max_level) {
+      if(g_machineshop_levels.num_buildings_by_level[next_max_level] != 0) break;
     }
-    prod = state->prod;
-    if ( prod )
-    {
-      UI_sidebar_prod_disable(prod);
-      state->prod = nullptr;
-    }
+    g_machineshop_levels.max_level = next_max_level;
+  }
+
+  if(state->prod) {
+    UI_sidebar_prod_disable(state->prod);
+    state->prod = nullptr;
   }
 }
 
@@ -33777,40 +33539,7 @@ void __fastcall UNIT_mode_machine_shop_complete(Unit *unit)
 //----- (00422430) --------------------------------------------------------
 void __fastcall UNIT_mode_machine_shop_on_death(Unit *unit)
 {
-  BuildingState *state; // esi
-  int max_level; // edx
-  int upgrade_level; // eax
-  int *v5; // ecx
-  int v6; // edx
-  SidebarFactoryProduction *prod; // ecx
-
-  state = (BuildingState *)unit->state;   // inlined e.g clanhall_downgrade_production
-  if ( g_player_num == unit->player_num )
-  {
-    max_level = g_machineshop_levels.max_level;
-    --g_machineshop_levels.num_buildings_by_level[state->upgrade_level];
-    upgrade_level = state->upgrade_level;
-    if ( upgrade_level == max_level && !g_machineshop_levels.num_buildings_by_level[upgrade_level] )
-    {
-      if ( upgrade_level > 0 )
-      {
-        v5 = &g_machineshop_levels.num_buildings_by_level[upgrade_level];
-        do
-        {
-          v6 = *--v5;
-          --upgrade_level;
-        }
-        while ( !v6 && upgrade_level > 0 );
-      }
-      g_machineshop_levels.max_level = upgrade_level;
-    }
-    prod = state->prod;
-    if ( prod )
-    {
-      UI_sidebar_prod_disable(prod);
-      state->prod = nullptr;
-    }
-  }
+  UNIT_mode_machine_shop_downgrade_production(unit);
   UINT_mode_building_exploding(unit);
 }
 
@@ -33946,7 +33675,7 @@ BOOL GAME_splash()
   mapd = (LevelMapd *)LVL_find_section("MAPD");
   PAL_apply(mapd[MenuId_Main].layers[0].palette);
   g_mapd_layers_rns[0] = LVL_get_mapd(MenuId_Main, 0, 0);
-  g_mapd_camera.y = 0x1EA00;
+  g_mapd_camera.y = GAME_px_to_world(490);
   //splash_ticks = 180;
   splash_ticks = 1;
   do
@@ -34351,7 +34080,7 @@ void GAME_mission_load()
   LVL_terrain_init();
   PAL_multi_init();
   UI_sidebar_create_layout();
-  UNIT_bomber_init();
+  BOMBER_init();
   if ( !GAME_mission_init() )
   {
     NETZ_shutdown();
@@ -34477,10 +34206,8 @@ int KKND_Main()
   MapdRenderNode **v3; // esi
 
   timeBeginPeriod(1u);
-  if ( !GAME_splash() )
-    return 1;
-  if ( MOVIE_play(MovieType_Intro) )
-  {
+  if(!GAME_splash()) return 1;
+  if(MOVIE_play(MovieType_Intro)) {
 LABEL_5:
     REND_clear(1);
     v1 = MenuId_Main;
@@ -34863,7 +34590,7 @@ void __cdecl GAME_mission_briefing(Task *task)
   task->channel = TaskChannel_MenuCancel;
   TickCount = GetTickCount();
   srand(TickCount);
-  g_mapd_camera.y = 0x1E000 * (rand() % 6);
+  g_mapd_camera.y = GAME_to_world(15.0f) * (rand() % 6);   // 6 briefing rows, 15 tiles apart
   FADE_out(task);
   g_work_ui_str = UI_str_create(
                     nullptr,
@@ -35459,7 +35186,7 @@ BOOL __fastcall GAME_parse_stats_table(const char *filename)
                 if ( *v10 != '-' )
                 {
                   v11 = atoi(v10);
-                  if ( v11 >= 1 && v11 <= (v7->cost << 8) / 60 )
+                  if ( v11 >= 1 && v11 <= RATE_FP(v7->cost, 60) )
                     v7->production_time = v11;
                   else
                     printf(
@@ -35467,7 +35194,7 @@ BOOL __fastcall GAME_parse_stats_table(const char *filename)
                       v5->tag,
                       "production time",
                       1,
-                      (v7->cost << 8) / 60);
+                      RATE_FP(v7->cost, 60));
                 }
                 v12 = strtok(nullptr, " \t\r\n");
                 v4 = v12;
@@ -35825,14 +35552,14 @@ int MISSION_victory_conditions_kaos()
   v0 = g_unit_list_head;
   v1 = 0;
   v2 = 0;
-  if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+  if ( g_unit_list_head != (Unit *)END(g_unit_list) )
   {
     while ( 1 )
     {
       if ( MISSION_unit_counts_for_victory(v0->type) )
         break;
       v0 = v0->next;
-      if ( v0 == (Unit *)&g_unit_list_head )
+      if ( v0 == (Unit *)END(g_unit_list) )
         goto LABEL_11;
     }
     if ( g_diplomacy.is_ally[g_player_num][v0->player_num] )
@@ -35846,7 +35573,7 @@ LABEL_11:
   {
     if ( g_num_enemy_waves_remaining <= 0 )
     {
-      if ( v0 == (Unit *)&g_unit_list_head )
+      if ( v0 == (Unit *)END(g_unit_list) )
         return v2 | (2 * v1);
       while ( 1 )
       {
@@ -35855,14 +35582,14 @@ LABEL_11:
           break;
         }
         v0 = v0->next;
-        if ( v0 == (Unit *)&g_unit_list_head )
+        if ( v0 == (Unit *)END(g_unit_list) )
           return v2;
       }
     }
     v1 = 1;
     return v2 | (2 * v1);
   }
-  if ( v0 == (Unit *)&g_unit_list_head )
+  if ( v0 == (Unit *)END(g_unit_list) )
     return v2 | (2 * v1);
   while ( 1 )
   {
@@ -35871,7 +35598,7 @@ LABEL_11:
       break;
     }
     v0 = v0->next;
-    if ( v0 == (Unit *)&g_unit_list_head )
+    if ( v0 == (Unit *)END(g_unit_list) )
       return v2 | (2 * v1);
   }
   return (2 * v1) | 1;
@@ -35888,7 +35615,7 @@ int MISSION_victory_conditions_xtreme()
   v0 = g_unit_list_head;
   v1 = 0;
   v2 = 0;
-  if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+  if ( g_unit_list_head != (Unit *)END(g_unit_list) )
   {
     while ( 1 )
     {
@@ -35907,7 +35634,7 @@ int MISSION_victory_conditions_xtreme()
           break;
       }
       v0 = v0->next;
-      if ( v0 == (Unit *)&g_unit_list_head )
+      if ( v0 == (Unit *)END(g_unit_list) )
         goto LABEL_14;
     }
     v0 = v0->next;
@@ -35917,7 +35644,7 @@ LABEL_14:
   {
     if ( g_num_enemy_waves_remaining <= 0 )
     {
-      if ( v0 == (Unit *)&g_unit_list_head )
+      if ( v0 == (Unit *)END(g_unit_list) )
         return v2 | (2 * v1);
       while ( 1 )
       {
@@ -35926,14 +35653,14 @@ LABEL_14:
           break;
         }
         v0 = v0->next;
-        if ( v0 == (Unit *)&g_unit_list_head )
+        if ( v0 == (Unit *)END(g_unit_list) )
           return v2;
       }
     }
     v1 = 1;
     return v2 | (2 * v1);
   }
-  if ( v0 == (Unit *)&g_unit_list_head )
+  if ( v0 == (Unit *)END(g_unit_list) )
     return v2 | (2 * v1);
   while ( 1 )
   {
@@ -35942,7 +35669,7 @@ LABEL_14:
       break;
     }
     v0 = v0->next;
-    if ( v0 == (Unit *)&g_unit_list_head )
+    if ( v0 == (Unit *)END(g_unit_list) )
       return v2 | (2 * v1);
   }
   return (2 * v1) | 1;
@@ -35958,14 +35685,14 @@ int MISSION_victory_conditions_single()
   v0 = g_unit_list_head;
   v1 = 0;
   v2 = 0;
-  if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+  if ( g_unit_list_head != (Unit *)END(g_unit_list) )
   {
     while ( 1 )
     {
       if ( MISSION_unit_counts_for_victory(v0->type) )
         break;
       v0 = v0->next;
-      if ( v0 == (Unit *)&g_unit_list_head )
+      if ( v0 == (Unit *)END(g_unit_list) )
         goto LABEL_11;
     }
     if ( v0->player_num == g_player_num )
@@ -35979,7 +35706,7 @@ LABEL_11:
   {
     if ( g_num_enemy_waves_remaining <= 0 )
     {
-      if ( v0 == (Unit *)&g_unit_list_head )
+      if ( v0 == (Unit *)END(g_unit_list) )
         return v2 | (2 * v1);
       while ( 1 )
       {
@@ -35988,14 +35715,14 @@ LABEL_11:
           break;
         }
         v0 = v0->next;
-        if ( v0 == (Unit *)&g_unit_list_head )
+        if ( v0 == (Unit *)END(g_unit_list) )
           return v2;
       }
     }
     v1 = 1;
     return v2 | (2 * v1);
   }
-  if ( v0 == (Unit *)&g_unit_list_head )
+  if ( v0 == (Unit *)END(g_unit_list) )
     return v2 | (2 * v1);
   while ( 1 )
   {
@@ -36004,7 +35731,7 @@ LABEL_11:
       break;
     }
     v0 = v0->next;
-    if ( v0 == (Unit *)&g_unit_list_head )
+    if ( v0 == (Unit *)END(g_unit_list) )
       return v2 | (2 * v1);
   }
   return (2 * v1) | 1;
@@ -36024,14 +35751,14 @@ int MISSION_victory_conditions_multi()
   v2 = 0;
   v3 = 0;
   player_num = 0;
-  if ( g_unit_list_head != (Unit *)&g_unit_list_head )
+  if ( g_unit_list_head != (Unit *)END(g_unit_list) )
   {
     while ( 1 )
     {
       if ( MISSION_unit_counts_for_victory(v0->type) )
         break;
       v0 = v0->next;
-      if ( v0 == (Unit *)&g_unit_list_head )
+      if ( v0 == (Unit *)END(g_unit_list) )
         goto LABEL_11;
     }
     if ( v0->player_num == g_player_num )
@@ -36048,7 +35775,7 @@ int MISSION_victory_conditions_multi()
 LABEL_11:
   if ( !v1 )
   {
-    if ( v0 != (Unit *)&g_unit_list_head )
+    if ( v0 != (Unit *)END(g_unit_list) )
     {
       while ( 1 )
       {
@@ -36057,7 +35784,7 @@ LABEL_11:
           break;
         }
         v0 = v0->next;
-        if ( v0 == (Unit *)&g_unit_list_head )
+        if ( v0 == (Unit *)END(g_unit_list) )
           return v2;
       }
       v1 = 1;
@@ -36065,7 +35792,7 @@ LABEL_11:
     return v2 | (2 * (v1 | (2 * v3)));
   }
   v3 = 1;
-  if ( v0 == (Unit *)&g_unit_list_head )
+  if ( v0 == (Unit *)END(g_unit_list) )
     return v2 | (2 * (v1 | (2 * v3)));
   while ( 1 )
   {
@@ -36079,7 +35806,7 @@ LABEL_11:
       break;
     }
     v0 = v0->next;
-    if ( v0 == (Unit *)&g_unit_list_head )
+    if ( v0 == (Unit *)END(g_unit_list) )
       return v2 | (2 * (v1 | (2 * v3)));
   }
   return (2 * (v1 | (2 * v3))) | 1;
@@ -36106,8 +35833,8 @@ BOOL __fastcall MISSION_outcome_sequence_init(Task *task, int bits)
   {
     v3->rn->transform = (RenderTransform)REND_transform_ui;
     ENT_anim_set(v3, 0);
-    v4->x = 0x14000;
-    v4->y = 0xF000;
+    v4->x = GAME_px_to_world(320);
+    v4->y = GAME_px_to_world(240);
     v4->z = 997;
   }
   v5 = ENT_create(MobdId_MissionOutcomeModal, nullptr, nullptr);
@@ -36116,8 +35843,8 @@ BOOL __fastcall MISSION_outcome_sequence_init(Task *task, int bits)
   {
     ENT_anim_set(v5, 12);
     v6->rn->transform = (RenderTransform)REND_transform_ui;
-    v6->x = 0x14000;
-    v6->y = 0xF000;
+    v6->x = GAME_px_to_world(320);
+    v6->y = GAME_px_to_world(240);
     v6->z = 997;
   }
   v7 = ENT_create(MobdId_MissionOutcomeModal, nullptr, nullptr);
@@ -36127,8 +35854,8 @@ BOOL __fastcall MISSION_outcome_sequence_init(Task *task, int bits)
     ENT_anim_set(v7, 24);
     ENT_anim_set(v8, 24);
     v8->rn->transform = (RenderTransform)REND_transform_ui;
-    v8->x = 0x14000;
-    v8->y = 0xF000;
+    v8->x = GAME_px_to_world(320);
+    v8->y = GAME_px_to_world(240);
     v8->z = 998;
   }
   v9 = ENT_create_ex(MobdId_MissionOutcomeModal, nullptr, MISSION_outcome_sequence_play, TaskKind_Coroutine, nullptr);
@@ -36240,7 +35967,7 @@ LABEL_52:
           if ( v9 < g_unit_stats[UnitType_Surv_PowerStation].cost )
           {
             v10 = g_unit_list_head;
-            for ( j = 0; v10 != (Unit *)&g_unit_list_head; v10 = v10->next )
+            for ( j = 0; v10 != (Unit *)END(g_unit_list); v10 = v10->next )
             {
               if ( !v10->destroyed && v10->player_num == v8 && v10->type == UnitType_Surv_PowerStation )
               {
@@ -36713,7 +36440,7 @@ BOOL __fastcall UNIT_get_building_construction_status(UnitType type, int player_
   BOOL result; // eax
 
   v2 = g_unit_list_head;
-  for ( result = 0; v2 != (Unit *)&g_unit_list_head; v2 = v2->next )
+  for ( result = 0; v2 != (Unit *)END(g_unit_list); v2 = v2->next )
   {
     if ( !v2->destroyed && v2->player_num == player_num && v2->type == type )
     {
@@ -36731,12 +36458,12 @@ Unit *__fastcall UNIT_find_first_of_type(UnitType type, int player_num)
   Unit *result; // eax
 
   result = g_unit_list_head;
-  if ( g_unit_list_head == (Unit *)&g_unit_list_head )
+  if ( g_unit_list_head == (Unit *)END(g_unit_list) )
     return nullptr;
   while ( result->destroyed || result->player_num != player_num || result->type != type )
   {
     result = result->next;
-    if ( result == (Unit *)&g_unit_list_head )
+    if ( result == (Unit *)END(g_unit_list) )
       return nullptr;
   }
   return result;
@@ -36833,7 +36560,7 @@ void __cdecl MISSION_spawn_players_and_start(Task *task)
 
       int dx = abs(pi->x - pj->x);
       int dy = abs(pi->y - pj->y);
-      int d = MATH_vec2_length(dx >> 8, dy >> 8);
+      int d = MATH_vec2_length(GAME_world_to_px(dx), GAME_world_to_px(dy));
       v79[10 + 6 * i + j] = d;
     }
   }
@@ -37223,17 +36950,17 @@ void __cdecl MISSION_x_mark_task(Task *task)
       switch ( g_current_lvl_id )
       {
         case LevelId_Surv_04_RescueTheScout:
-          ENT_X(entity) = 0xBA00;
-          ENT_Y(entity) = 0x5F500;
+          ENT_X(entity) = GAME_px_to_world(186);
+          ENT_Y(entity) = GAME_px_to_world(1525);
           break;
         case LevelId_Surv_06_ExterminateTheVillage:
-          ENT_X(entity) = 0x9600;
-          ENT_Y(entity) = 0x99800;
+          ENT_X(entity) = GAME_px_to_world(150);    // 0x9600
+          ENT_Y(entity) = GAME_px_to_world(2456);   // 0x99800
           x_mark->mode(x_mark);
           return;
         case LevelId_Mute_04_RaidTheFort:
-          ENT_X(entity) = 0xE800;
-          ENT_Y(entity) = 0x71A00;
+          ENT_X(entity) = GAME_px_to_world(232);
+          ENT_Y(entity) = GAME_px_to_world(1818);
           x_mark->mode(x_mark);
           return;
         default:
@@ -37504,8 +37231,8 @@ void __fastcall REND_transform_basic(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - (g_mapd_camera.x >> 8) - anim_current_frame->x;
-    node->cmd.y = (entity->y >> 8) - (g_mapd_camera.y >> 8) - entity->anim_current_frame->y;
+    node->cmd.x = (GAME_world_to_px(entity->x)) - (GAME_world_to_px(g_mapd_camera.x)) - anim_current_frame->x;
+    node->cmd.y = (GAME_world_to_px(entity->y)) - (GAME_world_to_px(g_mapd_camera.y)) - entity->anim_current_frame->y;
     node->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
   }
   else
@@ -37690,15 +37417,8 @@ void __fastcall ENT_remove(Entity *entity)
 //----- (00426F90) --------------------------------------------------------
 void __fastcall ENT_remove_with_task(Entity *entity)
 {
-  Task *task; // ecx
-  RenderNode *rn; // eax
-  CplcEntity *cplc_meta; // eax
-  CplcEntityInViewport *cplc_view; // ecx
-
-  task = entity->task;
-  if ( task )
-  {
-    TSK_kill(task);
+  if (entity->task) {
+    TSK_kill(entity->task);
     entity->task = nullptr;
   }
 
@@ -38283,13 +38003,13 @@ void __fastcall UNIT_mobile_base_init(Unit *unit)
       v3 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v3 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    unit->entity->x = v3 + (unit->entity->x & 0xFFFFE000);
+    unit->entity->x = v3 + (GAME_world_tile_floor(unit->entity->x));
     v4 = unit->stats;
     if ( v4->is_infantry )
       v5 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       v5 = v4->size != UnitSize_Regular ? 7424 : 4096;
-    unit->entity->y = v5 + (unit->entity->y & 0xFFFFE000);
+    unit->entity->y = v5 + (GAME_world_tile_floor(unit->entity->y));
     v6 = unit->stats;
     unit->tile_position = UnitPosition_Slot0;
     if ( v6->is_infantry )
@@ -38303,8 +38023,8 @@ void __fastcall UNIT_mobile_base_init(Unit *unit)
       v9 = v8->size != UnitSize_Regular ? 7424 : 4096;
     v10 = BOXD_place_unit_world_coords(
             unit,
-            v9 + (unit->entity->x & 0xFFFFE000),
-            v7 + (unit->entity->y & 0xFFFFE000),
+            v9 + (GAME_world_tile_floor(unit->entity->x)),
+            v7 + (GAME_world_tile_floor(unit->entity->y)),
             UnitPosition_Slot0);
     if ( v10 != UnitTilePosition_Invalid )
     {
@@ -38317,8 +38037,8 @@ void __fastcall UNIT_mobile_base_init(Unit *unit)
       unit->order_target_y = order_next_waypoint_y;
       unit->tile_position = v10;
       task = unit->task;
-      unit->map_x = entity->x >> 13;
-      unit->map_y = entity->y >> 13;
+      unit->map_x = GAME_world_to_tile(entity->x);
+      unit->map_y = GAME_world_to_tile(entity->y);
       task->message_handler = MSG_mobile_base;
       UNIT_mode_idle_init(unit);
       return;
@@ -38336,7 +38056,7 @@ LABEL_17:
     v15 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
   else
     v15 = v14->size != UnitSize_Regular ? 7424 : 4096;
-  v16 = v15 + (unit->map_x << 13);
+  v16 = v15 + (GAME_tile_to_world(unit->map_x));
   v17 = unit->stats;
   unit->order_next_waypoint_x = v16;
   if ( v17->is_infantry )
@@ -38344,7 +38064,7 @@ LABEL_17:
   else
     v18 = v17->size != UnitSize_Regular ? 7424 : 4096;
   order_next_waypoint_x = unit->order_next_waypoint_x;
-  v20 = (unit->map_y << 13) + v18;
+  v20 = (GAME_tile_to_world(unit->map_y)) + v18;
   v21 = unit->task;
   unit->order_next_waypoint_y = v20;
   unit->order = UnitOrder_Move;
@@ -38473,15 +38193,15 @@ void __fastcall UNIT_mobile_base_plant(Unit *unit)
     v11 = ENT_X(v9);
     if ( v7 == UnitType_Surv_Outpost )
     {
-      ENT_X(v9) = ((v11 + x) & 0xFFFFE000) - x + 2048;
+      ENT_X(v9) = (GAME_world_tile_floor(v11 + x)) - x + WORLD_QUARTER_TILE;
       v12 = unit->entity;
-      v13 = ((ENT_Y(v12) + unit->mobd_anchors.grid->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+      v13 = (GAME_world_tile_floor(ENT_Y(v12) + unit->mobd_anchors.grid->y)) - unit->mobd_anchors.grid->y + WORLD_HALF_TILE;
     }
     else
     {
-      ENT_X(v9) = ((v11 + x) & 0xFFFFE000) - x + 7936;
+      ENT_X(v9) = (GAME_world_tile_floor(v11 + x)) - x + 7936;
       v12 = unit->entity;
-      v13 = ((ENT_Y(v12) + unit->mobd_anchors.grid->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 3328;
+      v13 = (GAME_world_tile_floor(ENT_Y(v12) + unit->mobd_anchors.grid->y)) - unit->mobd_anchors.grid->y + 3328;
     }
     ENT_Y(v12) = v13;
     task = unit->task;
@@ -39608,7 +39328,7 @@ LABEL_165:
               v37 = g_unit_list_head;
               v38 = 0;
               v39 = 0;
-              for ( n = 0; v37 != (Unit *)&g_unit_list_head; v37 = v37->next )
+              for ( n = 0; v37 != (Unit *)END(g_unit_list); v37 = v37->next )
               {
                 if ( v37->player_num == g_player_num )
                 {
@@ -39625,7 +39345,7 @@ LABEL_165:
               if ( v38 )
               {
                 p_cmd = &g_mapd_layers_rns[0]->rn->cmd;
-                v44 = v39 / v38 - (g_rend_screen_width << 7) + 4096;
+                v44 = v39 / v38 - (g_rend_screen_width << 7) + WORLD_HALF_TILE;
                 v45 = n / v38 - (g_rend_screen_height << 7);
                 if ( v44 >= 0 )
                 {
@@ -39836,8 +39556,8 @@ LABEL_110:
           goto LABEL_75;
         x = pt->x;
         v21 = ENT_X(cursor.cursor_hitbox_tester);
-        ENT_X(v10) = ((x + v21) & 0xFFFFE000) - x + 4096;
-        ENT_Y(v10) = ((pt->y + ENT_Y(cursor.cursor_hitbox_tester)) & 0xFFFFE000) - pt->y + 4096;
+        ENT_X(v10) = (GAME_world_tile_floor(x + v21)) - x + WORLD_HALF_TILE;
+        ENT_Y(v10) = GAME_world_tile_floor(pt->y + ENT_Y(cursor.cursor_hitbox_tester)) - pt->y + WORLD_HALF_TILE;
         v22 = CURSOR_building_planner_ghost(
                 entities,
                 pt->x + ENT_X(cursor.cursor_hitbox_tester),
@@ -40018,7 +39738,7 @@ void __fastcall CURSOR_select_control_group(CursorState *cursor, int group)
       cursor->selection_tail = (CursorUnitSelection *)cursor;
     }
     v8 = g_unit_list_head;
-    for ( j = (Unit *)group; v8 != (Unit *)&g_unit_list_head; v8 = v8->next )
+    for ( j = (Unit *)group; v8 != (Unit *)END(g_unit_list); v8 = v8->next )
     {
       if ( (char)v8->control_groups[g_player_num] == group && !v8->destroyed )
       {
@@ -40123,7 +39843,7 @@ LABEL_44:
       if ( v17 )
       {
         p_cmd = &g_mapd_layers_rns[0]->rn->cmd;
-        v23 = v18 / v17 - (g_rend_screen_width << 7) + 4096;
+        v23 = v18 / v17 - (g_rend_screen_width << 7) + WORLD_HALF_TILE;
         v24 = k / v17 - (g_rend_screen_height << 7);
         if ( v23 >= 0 )
         {
@@ -41688,7 +41408,7 @@ void __fastcall CURSOR_process_game_events(CursorState *cursor, BOOL process_ui_
         v3 = prev;
         goto LABEL_26;
       }
-      v10 = (remaining_cost << 8) / v3->cost;
+      v10 = PERCENT_256(remaining_cost, v3->cost);
       if ( v10 > 85 )
         break;
       if ( (int)v3->stage < (int)BuildingConstructionStage_2 )
@@ -41804,7 +41524,7 @@ LABEL_27:
     if ( g_rmb_hold_frame_count < 10 )
       UI_sidebar_toggle_help_airstrike(-1);
     g_rmb_hold_frame_count = 0;
-    INPUT_set_mouse_pos(cursor->rmb_scrolling_initial_x >> 8, cursor->rmb_scrolling_initial_y >> 8);
+    INPUT_set_mouse_pos(GAME_world_to_px(cursor->rmb_scrolling_initial_x), GAME_world_to_px(cursor->rmb_scrolling_initial_y));
     rmb_scrolling_initial_x = cursor->rmb_scrolling_initial_x;
     v20 = g_netz_sync_pause;
     g_game_mouse_state.cursor_x = rmb_scrolling_initial_x;
@@ -41980,8 +41700,8 @@ LABEL_82:
     TSK_yield(cursor->cursor_task, TaskWait_Any, 1);
   }
   cursor_hitbox_tester = cursor->cursor_hitbox_tester;
-  v37 = ENT_X(cursor_hitbox_tester) >> 13;
-  v38 = ENT_Y(cursor_hitbox_tester) >> 13;
+  v37 = GAME_world_to_tile(ENT_X(cursor_hitbox_tester));
+  v38 = GAME_world_to_tile(ENT_Y(cursor_hitbox_tester));
   if ( v37 >= 0 )
   {
     if ( v37 >= g_map_num_tiles_x )
@@ -42394,13 +42114,13 @@ int __fastcall CURSOR_building_planner_ghost(
   int widtha; // [esp+2Ch] [ebp+8h]
   int map_x; // [esp+30h] [ebp+Ch]
 
-  v7 = y >> 13;
-  v9 = (y >> 13) - 4;
+  v7 = GAME_world_to_tile(y);
+  v9 = (GAME_world_to_tile(y)) - 4;
   can_place = 1;
   v21 = 0;
-  v10 = x >> 13;
+  v10 = GAME_world_to_tile(x);
   v23 = v10;
-  ya = (y >> 13) + height;
+  ya = (GAME_world_to_tile(y)) + height;
   v8 = ya;
   if ( v9 < ya + 3 )
   {
@@ -42470,8 +42190,8 @@ LABEL_15:
               ENT_anim_set(*v19, 548);
               can_place = 0;
             }
-            ENT_X(*v19) = v18 << 13;
-            ENT_Y(*v19) = v7 << 13;
+            ENT_X(*v19) = GAME_tile_to_world(v18);
+            ENT_Y(*v19) = GAME_tile_to_world(v7);
           }
           ++v18;
           ++v19;
@@ -42761,8 +42481,8 @@ LABEL_57:
   }
   v25 = ENT_X(box_x);
   *(_WORD *)g_game_event_queue.evt.payload = v25 >> 8;
-  *(_WORD *)&g_game_event_queue.evt.payload[2] = box_x->y >> 8;
-  v26 = ENT_X(box_w) >> 8;
+  *(_WORD *)&g_game_event_queue.evt.payload[2] = GAME_world_to_px(box_x->y);
+  v26 = GAME_world_to_px(ENT_X(box_w));
   *(_WORD *)&g_game_event_queue.evt.payload[4] = v26;
   v27 = box_w->y;
   v28 = g_game_event_queue.next;
@@ -42877,8 +42597,8 @@ void __cdecl UI_sidebar_tooltip(Task *task)
       v11 = UI_str_create(
               nullptr,
               (FontMobd *)g_mobd[MobdId_Font_Main].layers[0],
-              (ENT_X(payload->entity) >> 8) - (8 * v10 + 8),
-              (ENT_Y(payload->entity) >> 8) + 22,
+              (GAME_world_to_px(ENT_X(payload->entity))) - (8 * v10 + 8),
+              (GAME_world_to_px(ENT_Y(payload->entity))) + 22,
               v10 + 2,
               v9 + 2,
               0x20000005,
@@ -46424,7 +46144,7 @@ void __fastcall MSG_outpost_upgrades(
   Unit *unit; // ebx
   BuildingState *state; // eax
   SidebarFactoryProduction *prod; // edi
-  int v9; // esi
+  bool reached_new_max; // esi
   LevelId v10; // eax
   LevelId v11; // eax
 
@@ -46434,53 +46154,46 @@ void __fastcall MSG_outpost_upgrades(
   state->upgrade_level = min(5, state->upgrade_level + 1);
   if ( unit->player_num == g_player_num )
   {
-    v9 = 0;
-    g_outpost_levels.num_buildings_by_level[state->upgrade_level - 1] -= 1;
-    g_outpost_levels.num_buildings_by_level[state->upgrade_level] += 1;
-    if ( state->upgrade_level > g_outpost_levels.max_level )
-    {
-      g_outpost_levels.max_level = state->upgrade_level;
-      v9 = 1;
-    }
+    reached_new_max = TECHLVL_advance(&g_outpost_levels, state->upgrade_level);
     switch ( state->upgrade_level )
     {
       case 2:
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x200000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_PYROMANIAC) == 0 )
           UI_sidebar_prod_enable_unit(prod, UnitType_Surv_Flamer, 2880);
-        if ( v9 )
+        if ( reached_new_max )
         {
           MINI_enable();
-          if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x800) == 0 )
+          if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_MG_NEST) == 0 )
             UI_sidebar_prod_enable_unit(g_sidebar_tower_prod, UnitType_Surv_GuardTower, 2400);
         }
         break;
       case 3:
         v10 = g_current_lvl_id;
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x400000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_VANDAL) == 0 )
         {
           UI_sidebar_prod_enable_unit(prod, UnitType_Surv_Saboteur, 2856);
           v10 = g_current_lvl_id;
         }
-        if ( (g_lvl_desc[v10].disabled_units_mask & 0x800000) == 0 )
+        if ( (g_lvl_desc[v10].disabled_units_mask & DISABLED_UNITS_MASK_RIOTER) == 0 )
         {
           UI_sidebar_prod_enable_unit(prod, UnitType_Surv_Sapper, 2864);
           v10 = g_current_lvl_id;
         }
-        if ( v9 && (g_lvl_desc[v10].disabled_units_mask & 0x100) == 0 )
+        if ( reached_new_max && (g_lvl_desc[v10].disabled_units_mask & DISABLED_UNITS_MASK_MISSILE_BATTERY) == 0 )
           UI_sidebar_prod_enable_unit(g_sidebar_tower_prod, UnitType_Surv_MissileBattery, 2384);
         break;
       case 4:
         v11 = g_current_lvl_id;
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x1000000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_BAZOOKA) == 0 )
         {
           UI_sidebar_prod_enable_unit(prod, UnitType_Surv_RpgLauncher, 2840);
           v11 = g_current_lvl_id;
         }
-        if ( v9 && (g_lvl_desc[v11].disabled_units_mask & 0x200) == 0 )
+        if ( reached_new_max && (g_lvl_desc[v11].disabled_units_mask & DISABLED_UNITS_MASK_GRAPESHOT_TOWER) == 0 )
           UI_sidebar_prod_enable_unit(g_sidebar_tower_prod, UnitType_SurvCannonTower, 2392);
         break;
       case 5:
-        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x2000000) == 0 )
+        if ( (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_CRAZY_HARRY) == 0 )
           UI_sidebar_prod_enable_unit(prod, UnitType_Surv_Sniper, 2832);
         if ( GAME_is_machine_shop_maxed() )
           AIRSTRIKE_try_unlock();
@@ -46776,12 +46489,12 @@ void __fastcall UNIT_mode_outpost_downgrade_production(Unit *unit)
     switch ( upgrade_level )
     {
       case 2:
-        if ( (g_lvl_desc[v5].disabled_units_mask & 0x800) != 0 )
+        if ( (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_MG_NEST) != 0 )
           break;
         v6 = UnitType_Surv_GuardTower;
         goto LABEL_16;
       case 3:
-        if ( (g_lvl_desc[v5].disabled_units_mask & 0x100) != 0 )
+        if ( (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_MISSILE_BATTERY) != 0 )
           break;
         v6 = UnitType_Surv_MissileBattery;
 LABEL_16:
@@ -46790,7 +46503,7 @@ LABEL_17:
         v5 = g_current_lvl_id;
         break;
       case 4:
-        if ( (g_lvl_desc[v5].disabled_units_mask & 0x200) == 0 )
+        if ( (g_lvl_desc[v5].disabled_units_mask & DISABLED_UNITS_MASK_GRAPESHOT_TOWER) == 0 )
           UI_sidebar_disable_production(g_sidebar_tower_prod, UnitType_SurvCannonTower);
         AIRCRAFT_revoke_prod_option();
         goto LABEL_17;
@@ -47175,7 +46888,7 @@ void __cdecl UI_slider(Task *task)
       }
       else
       {
-        v15 = 16 * ((v13 - entity->x) >> 8) / 128;
+        v15 = 16 * (GAME_world_to_px(v13 - entity->x)) / 128;
         if ( v12 == (void *)1 )
         {
           g_sfx_vol = v15;
@@ -47564,7 +47277,7 @@ void __fastcall UI_save_load_dialog_input_cb(const char *text, int cursor_pos)
   g_work_ui_str->cursor_col = 0;
   UISTR_append_text(g_work_ui_str, text, nullptr);
   ENT_X(g_ui_input_cursor_entity) = UI_get_letter_x(g_work_ui_str, cursor_pos, 6) << 8;
-  ENT_Y(g_ui_input_cursor_entity) = 0xC200;
+  ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(194);
 }
 
 //----- (00432990) --------------------------------------------------------
@@ -47648,7 +47361,7 @@ void __fastcall UI_save_load_dialog(Task *task, BOOL is_main_menu_mode, BOOL is_
       {
         v8->task->netz_flags = Task_CanRunDuringSync;
         v8->task->ctx = (void *)v6;
-        v8->x = 0xE800;
+        v8->x = GAME_px_to_world(232);
         v8->y = v7;
         v8->z = 0xA00;
         if ( is_main_menu_mode )
@@ -47677,7 +47390,7 @@ void __fastcall UI_save_load_dialog(Task *task, BOOL is_main_menu_mode, BOOL is_
         UI_str_clear(g_work_ui_str);
         g_work_ui_str->cursor_col = 0;
         g_work_ui_str->cursor_row = 0;
-        entity->x = 0xE800;
+        entity->x = GAME_px_to_world(232);
         entity->y = (16 * active_row + dialog_y + 14) << 8;
         ENT_anim_set(entity, 1064);
         v9 = first_visible_row;
@@ -47818,7 +47531,7 @@ void __fastcall UI_save_load_dialog(Task *task, BOOL is_main_menu_mode, BOOL is_
       if ( !is_double_click )
         break;
 LABEL_60:
-      ENT_Y(g_ui_input_cursor_entity) = 0xC200;
+      ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(194);
       ENT_anim_set(entity, 1096);
       g_ui_input_locked = 1;
       if ( INPUT_text_edit(
@@ -47945,7 +47658,7 @@ void __cdecl UI_ingame_menu_controller(Task *task)
   rn = entity->rn;
   v4 = g_rend_screen_width;
   LOBYTE(v4) = v4 & 0xFE;
-  ENT_Y(entity) = 0x4000;
+  ENT_Y(entity) = GAME_px_to_world(64);
   ENT_X(entity) = v4 << 7;
   entity->z = 1000;
   rn->transform = (RenderTransform)REND_transform_ui;
@@ -49659,9 +49372,9 @@ void __fastcall UNIT_mode_power_plant_spawn_tanker(Unit *unit)
       y = ENT_Y(v4);
       player_num = unit->player_num;
       if ( type == UnitType_Surv_PowerStation )
-        ENT_create_by_unit_type(UnitType_Surv_Tanker, ENT_X(v4), y + 0x6000, player_num);
+        ENT_create_by_unit_type(UnitType_Surv_Tanker, ENT_X(v4), y + GAME_to_world(3.0f), player_num);
       else
-        ENT_create_by_unit_type(UnitType_Mute_Tanker, ENT_X(v4), y + 0x6000, player_num);
+        ENT_create_by_unit_type(UnitType_Mute_Tanker, ENT_X(v4), y + GAME_to_world(3.0f), player_num);
     }
     else
     {
@@ -49669,9 +49382,9 @@ void __fastcall UNIT_mode_power_plant_spawn_tanker(Unit *unit)
       v7 = ENT_Y(v6);
       v9 = unit->player_num;
       if ( type == UnitType_Surv_PowerStation )
-        ENT_create_by_unit_type(UnitType_Surv_Tanker, ENT_X(v6) - 0x2000, v7 + 0x2000, v9);
+        ENT_create_by_unit_type(UnitType_Surv_Tanker, ENT_X(v6) - GAME_to_world(1.0f), v7 + GAME_to_world(1.0f), v9);
       else
-        ENT_create_by_unit_type(UnitType_Mute_Tanker, ENT_X(v6), v7 + 0x4000, v9);
+        ENT_create_by_unit_type(UnitType_Mute_Tanker, ENT_X(v6), v7 + GAME_to_world(2.0f), v9);
     }
   }
   else
@@ -49752,8 +49465,8 @@ void __cdecl PROJ_mode_grenade(Task *task)
   shooter = (Unit *)volley->parent->ctx1;
   y = ENT_Y(volley);
   entity = target->entity;
-  v5 = (ENT_Y(entity) - y) >> 8;
-  v6 = (ENT_X(entity) - ENT_X(volley)) >> 8;
+  v5 = GAME_world_to_px(ENT_Y(entity) - y);
+  v6 = GAME_world_to_px(ENT_X(entity) - ENT_X(volley));
   v28 = MATH_direction_to_orientation(v6, v5);
   v7 = MATH_vec2_length(v6, v5);
   v8 = ctx1;
@@ -49839,7 +49552,7 @@ void __fastcall PROJ_air_aoe_damage(Entity *entity, int radius)
   Unit *i; // esi
   UnitType type; // eax
 
-  for ( i = g_unit_list_head; i != (Unit *)&g_unit_list_head; i = i->next )
+  for ( i = g_unit_list_head; i != (Unit *)END(g_unit_list); i = i->next )
   {
     type = i->type;
     if ( (type == UnitType_Surv_Bomber || type == UnitType_Mute_Wasp) && !i->destroyed && i->task )
@@ -49902,8 +49615,8 @@ void __cdecl PROJ_mode_rocket(Task *task)
   x = ENT_X(volley);
   y = ENT_Y(volley);
   entity = target->entity;
-  v7 = (ENT_X(entity) - x) >> 8;
-  v8 = (ENT_Y(entity) - y) >> 8;
+  v7 = GAME_world_to_px(ENT_X(entity) - x);
+  v8 = GAME_world_to_px(ENT_Y(entity) - y);
   if ( parent->turret )
   {
     z = ENT_Z(volley);
@@ -49979,7 +49692,7 @@ void __cdecl PROJ_mode_rocket(Task *task)
     if ( is_airborne )
     {
       v27 = g_unit_list_head;                   // INLINED 435D40  PROJ_air_aoe_damage
-      for ( i = proj->radius; v27 != (Unit *)&g_unit_list_head; v27 = v27->next )
+      for ( i = proj->radius; v27 != (Unit *)END(g_unit_list); v27 = v27->next )
       {
         type = v27->type;
         if ( (type == UnitType_Surv_Bomber || type == UnitType_Mute_Wasp)
@@ -50023,8 +49736,8 @@ void __cdecl PROJ_flamethrower_hit(Task *task)
   proj = (UnitProjectileType *)entity->ctx1;
   x = ENT_X(entity);
   v5 = unit->entity;
-  v6 = (ENT_Y(v5) - ENT_Y(entity)) >> 8;
-  v7 = (ENT_X(v5) - x) >> 8;
+  v6 = GAME_world_to_px(ENT_Y(v5) - ENT_Y(entity));
+  v7 = GAME_world_to_px(ENT_X(v5) - x);
   v9 = MATH_direction_to_orientation(v7, v6);
   SOUND_play_positional(entity, SoundId_Flamethrower, g_sfx_vol, 0);
   ENT_anim_set(entity, 496);
@@ -50084,13 +49797,8 @@ void __cdecl PROJ_mode_flamethrower(Task *task)
     v7->ctx1 = proj;
     v7->projectile_ctx.attacker = shooter;
     v7->projectile_ctx.attacker_unit_id = shooter->unit_id;
-    v7->infantry_damage = proj->damage_to_infantry
-                        + ((proj->damage_to_infantry * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
-    v7->vehicle_damage = proj->damage_to_vehicles
-                       + ((proj->damage_to_vehicles * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
+    ENT_set_projectile_damage(v7, proj, shooter->veterancy);
     ++v4;
-    v7->building_damage = proj->damage_to_buildings
-                        + ((proj->damage_to_buildings * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
     TSK_yield(task, TaskWait_Interval, 5);
     if ( v4 >= 8 )
       break;
@@ -50120,7 +49828,7 @@ void __cdecl PROJ_giant_beetle_hit(Task *task)
   proj = (UnitProjectileType *)entity->ctx1;
   v11 = proj;
   y = ENT_Y(entity);
-  v6 = MATH_vec2_length((ENT_X(unit->entity) - ENT_X(entity)) >> 8, (ENT_Y(unit->entity) - y) >> 8);
+  v6 = MATH_vec2_length(GAME_world_to_px(ENT_X(unit->entity) - ENT_X(entity)), GAME_world_to_px(ENT_Y(unit->entity) - y));
   taska = unit->unit_id;
   v7 = v6 / proj->speed;
   ENT_anim_set(entity, 1784);
@@ -50196,8 +49904,8 @@ void __cdecl PROJ_mode_giant_beetle(Task *task)
   shooter = (Unit *)volley->parent->ctx1;
   v4 = ENT_X(volley);
   entity = target->entity;
-  x = (ENT_X(entity) - v4) >> 8;
-  y = (ENT_Y(entity) - ENT_Y(volley)) >> 8;
+  x = GAME_world_to_px(ENT_X(entity) - v4);
+  y = GAME_world_to_px(ENT_Y(entity) - ENT_Y(volley));
   v20 = MATH_direction_to_orientation(x, y);
   v22 = 0;
   SOUND_play_positional(shooter->entity, SoundId_AcidSpit, g_sfx_vol, 0);
@@ -50281,12 +49989,7 @@ void __cdecl PROJ_mode_giant_beetle(Task *task)
         v12->ctx1 = proj;
         v12->projectile_ctx.attacker = shooter;
         v12->projectile_ctx.attacker_unit_id = shooter->unit_id;
-        v12->infantry_damage = proj->damage_to_infantry
-                             + ((proj->damage_to_infantry * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
-        v12->vehicle_damage = proj->damage_to_vehicles
-                            + ((proj->damage_to_vehicles * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
-        v12->building_damage = proj->damage_to_buildings
-                             + ((proj->damage_to_buildings * g_veterancy_damage_mod[shooter->veterancy]) >> 8);
+        ENT_set_projectile_damage(v12, proj, shooter->veterancy);
         v12->x_speed = v21->x_speed + 4 * (GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 470) & 31) - 64;
         v12->y_speed = v21->y_speed + 4 * (GAME_rand_sync("C:\\k\\Scripts\\Projectl.cpp", 471) & 31) - 64;
       }
@@ -50324,8 +50027,8 @@ void __cdecl PROJ_4368B0(Task *task)
   x = ENT_X(volley);
   entity = target->entity;
   unit_id = target->unit_id;
-  v6 = (ENT_X(entity) - x) >> 8;
-  v7 = (ENT_Y(entity) - y) >> 8;
+  v6 = GAME_world_to_px(ENT_X(entity) - x);
+  v7 = GAME_world_to_px(ENT_Y(entity) - y);
   ENT_anim_set(volley, 1152);
   volley->collider = &g_null_collision;
   v8 = MATH_vec2_length(v6, v7);
@@ -50423,8 +50126,8 @@ void __cdecl PROJ_mode_mech(Task *task)
     v5 = ENT_Y(volley);
     x = ENT_X(volley);
     v7 = target->entity;
-    v8 = (ENT_X(v7) - x) >> 8;
-    ya = (ENT_Y(v7) - v5) >> 8;
+    v8 = GAME_world_to_px(ENT_X(v7) - x);
+    ya = GAME_world_to_px(ENT_Y(v7) - v5);
     v50 = MATH_direction_to_orientation(v8, ya);
     volley->mobd_id = MobdId_Mech;
     ENT_anim_set(volley, 1152);
@@ -50477,8 +50180,8 @@ void __cdecl PROJ_mode_mech(Task *task)
     v19 = ENT_X(volley);
     v20 = target->entity;
     turret = shooter->turret;
-    v22 = (ENT_X(v20) - v19) >> 8;
-    v23 = (ENT_Y(v20) - ENT_Y(volley)) >> 8;
+    v22 = GAME_world_to_px(ENT_X(v20) - v19);
+    v23 = GAME_world_to_px(ENT_Y(v20) - ENT_Y(volley));
     if ( turret )
       ENT_Z(volley) = turret->entity->z + 0x500;
     v51 = MATH_direction_to_orientation(v22, v23);
@@ -50551,7 +50254,7 @@ void __cdecl PROJ_mode_mech(Task *task)
       if ( is_airborne )
       {
         v42 = g_unit_list_head;                 // 435D40  PROJ_air_aoe_damage
-        for ( i = proj->radius; v42 != (Unit *)&g_unit_list_head; v42 = v42->next )
+        for ( i = proj->radius; v42 != (Unit *)END(g_unit_list); v42 = v42->next )
         {
           type = v42->type;
           if ( (type == UnitType_Surv_Bomber || type == UnitType_Mute_Wasp)
@@ -50852,7 +50555,7 @@ void __cdecl PROJ_mode_437690(Task *task)
   proj = (UnitProjectileType *)volley->ctx1;
   shooter = (Unit *)volley->parent->ctx1;
   y = ENT_Y(volley);
-  v16 = MATH_direction_to_orientation((ENT_X(target->entity) - ENT_X(volley)) >> 8, (ENT_Y(target->entity) - y) >> 8);
+  v16 = MATH_direction_to_orientation(GAME_world_to_px(ENT_X(target->entity) - ENT_X(volley)), GAME_world_to_px(ENT_Y(target->entity) - y));
   v5 = shooter->stats->accuracy + g_veterancy_accuracy_bonus[shooter->veterancy];
   v6 = v5;
   if ( v5 >= 100 )
@@ -50916,8 +50619,8 @@ void __cdecl PROJ_mode_bow(Task *task)
   shooter = (Unit *)volley->parent->ctx1;
   x = ENT_X(volley);
   entity = target->entity;
-  v5 = (ENT_Y(entity) - ENT_Y(volley)) >> 8;
-  v6 = (ENT_X(entity) - x) >> 8;
+  v5 = GAME_world_to_px(ENT_Y(entity) - ENT_Y(volley));
+  v6 = GAME_world_to_px(ENT_X(entity) - x);
   v21 = MATH_direction_to_orientation(v6, v5);
   SOUND_play_positional(shooter->entity, SoundId_Mute_Bow, g_sfx_vol, 0);
   volley->rn->cmd.palette_override = g_tint_palettes_per_player[g_palette_idx_per_player[shooter->player_num]];
@@ -51004,8 +50707,8 @@ void __cdecl PROJ_mode_generic(Task *task)
   v26 = shooter;
   x = ENT_X(volley);
   entity = target->entity;
-  v6 = (ENT_Y(entity) - ENT_Y(volley)) >> 8;
-  v7 = (ENT_X(entity) - x) >> 8;
+  v6 = GAME_world_to_px(ENT_Y(entity) - ENT_Y(volley));
+  v7 = GAME_world_to_px(ENT_X(entity) - x);
   v8 = MATH_direction_to_orientation(v7, v6);
   volley->collider = &g_null_collision;
   v27 = v8;
@@ -51151,7 +50854,7 @@ void __fastcall MSG_repair_bay(Task *receiver, Task *sender, TaskMessageType mes
   if ( message == TaskMessage_UpgradeComplete )
   {
     unit = (Unit *)receiver->ctx;
-    ++*((int *)unit->state + 1);             // BUG - it's BuildingState*
+    ((BuildingState *)unit->state)->upgrade_level++;
     UNIT_status_bar_update_tech(unit);
   }
   else
@@ -51254,7 +50957,7 @@ void __fastcall UPG_mode_update_anim(UpgradeProcess *upg)
     upg->mode = UPG_mode_finalize;
     return;
   }
-  v4 = (progress << 8) / 300;                   // INLINED #define PERCENT_256(val,max) (val<<8)/max  -- maps 0..max -> 0..256
+  v4 = PERCENT_256(progress, 300);
   if ( v4 > 50 )
   {
     if ( v4 > 100 )
@@ -51703,10 +51406,10 @@ void __fastcall SCAR_apply(int x, int y)
     v5 = v4;
     if ( (v4 & 0x7FFFu) < 0x1388 )
     {
-      v6 = y & 0xFFFFE000;
-      v7 = x & 0xFFFFE000;
+      v6 = GAME_world_tile_floor(y);
+      v7 = GAME_world_tile_floor(x);
       v8 = v6;
-      if ( (g_terrain[(v7 >> 13) + g_map_num_tiles_x * (v6 >> 13)].flags1 & 0xE0) == 0 )
+      if ( (g_terrain[(GAME_world_to_tile(v7)) + g_map_num_tiles_x * (GAME_world_to_tile(v6))].flags1 & 0xE0) == 0 )
       {
         v9 = g_scar_active_head;
         if ( g_scar_active_head == (Scar *)&g_scar_active_head )
@@ -52050,8 +51753,8 @@ void __fastcall MAPD_render_mapd(MapdRenderNode *mapd, RenderNode *node)
 {
   node->cmd.image = (RenderImage *)mapd->scrl;
   node->cmd.z = mapd->z;
-  node->cmd.x = -(g_mapd_camera.x >> 8);        // world space -> screen space
-  node->cmd.y = -(g_mapd_camera.y >> 8);
+  node->cmd.x = -(GAME_world_to_px(g_mapd_camera.x));        // world space -> screen space
+  node->cmd.y = -(GAME_world_to_px(g_mapd_camera.y));
   node->cmd.viewport = g_rend_default_viewport;
 }
 
@@ -54545,7 +54248,7 @@ void __cdecl UI_main_menu_campaign(Task *task)
   LevelMapd *mapd; // eax
 
   g_work_ui_str = nullptr;
-  task->entity->y = 0xF000;
+  task->entity->y = GAME_px_to_world(240);
   task->entity->z = 4;
   ENT_create_ex(MobdId_MainMenuButtons, task->entity, UI_main_menu_play_mission, TaskKind_Coroutine, nullptr);
   ENT_create_ex(MobdId_MainMenuButtons, task->entity, UI_main_menu_new_missions, TaskKind_Coroutine, nullptr);
@@ -54625,7 +54328,7 @@ void __cdecl UI_main_menu_load(Task *task)
 
   g_is_kaos_mode = 0;
   g_is_single_player = 1;
-  task->entity->y = 0x10E00;
+  task->entity->y = GAME_px_to_world(270);
   task->entity->z = 6;
   TSK_yield(task, TaskWait_Interval, 1);
   entity = task->entity;
@@ -54677,7 +54380,7 @@ void __cdecl UI_main_menu_play_mission(Task *task)
   int i; // ecx
   LevelMapd *section; // eax
 
-  task->entity->y = 0x12C00;
+  task->entity->y = GAME_px_to_world(300);
   task->entity->z = 8;
   TSK_yield(task, TaskWait_Interval, 1);
   entity = task->entity;
@@ -54757,7 +54460,7 @@ void __cdecl UI_main_menu_new_missions(Task *task)
   int i; // ecx
   int *section; // eax
 
-  task->entity->y = 0x16800;
+  task->entity->y = GAME_px_to_world(360);
   task->entity->z = 11;
   TSK_yield(task, TaskWait_Interval, 1);
   entity = task->entity;
@@ -54835,7 +54538,7 @@ void __cdecl UI_main_menu_kaos(Task *task)
   int i; // ecx
   LevelMapd *section; // eax
 
-  task->entity->y = 0x18600;
+  task->entity->y = GAME_px_to_world(390);
   task->entity->z = 12;
   TSK_yield(task, TaskWait_Interval, 1);
   entity = task->entity;
@@ -54914,7 +54617,7 @@ void __cdecl UI_main_menu_multi(Task *task)
   LevelMapd *section; // eax
 
   TSK_yield(task, TaskWait_Interval, 1);
-  task->entity->y = 0x14A00;
+  task->entity->y = GAME_px_to_world(330);
   task->entity->z = 10;
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenuButtons, nullptr, entity);
@@ -54989,7 +54692,7 @@ void __cdecl UI_main_menu_quit(Task *task)
   MenuWidget *v5; // eax
 
   TSK_yield(task, TaskWait_Interval, 1);
-  task->entity->y = 0x1A400;
+  task->entity->y = GAME_px_to_world(420);
   task->entity->z = 13;
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenuButtons, nullptr, entity);
@@ -55038,8 +54741,8 @@ void __cdecl UI_main_menu_campaign_surv(Task *task)
   MenuWidget *v6; // edx
 
   entity = task->entity;
-  entity->x = 0xBE00;
-  entity->y = 0xA800;
+  entity->x = GAME_px_to_world(190);
+  entity->y = GAME_px_to_world(168);
   v2 = task->entity;
   v2->parent = nullptr;
   task->channel = TaskChannel_CampaignFactionSelect;
@@ -55102,8 +54805,8 @@ void __cdecl UI_main_menu_campaign_mute(Task *task)
   MenuWidget *v6; // edx
 
   entity = task->entity;
-  entity->x = 0x1AC00;
-  entity->y = 0xA800;
+  entity->x = GAME_px_to_world(428);
+  entity->y = GAME_px_to_world(168);
   v2 = task->entity;
   v2->parent = nullptr;
   task->channel = TaskChannel_CampaignFactionSelect;
@@ -55483,7 +55186,7 @@ void __fastcall UI_main_menu_multi_player_name_input_cb(char *text, int cursor_p
     while ( v4 );
   }
   ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
-  ENT_Y(g_ui_input_cursor_entity) = 0xB400;
+  ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(180);
 }
 
 //----- (0043DA80) --------------------------------------------------------
@@ -55512,8 +55215,8 @@ void __cdecl UI_main_menu_multi_player_name_input(Task *task)
   {
     TSK_terminate_with_entity(task);
   }
-  entity->x = 0x16800;
-  entity->y = 0xB000;
+  entity->x = GAME_px_to_world(360);
+  entity->y = GAME_px_to_world(176);
   entity->z = 90;
   v3 = task->entity;
   v4 = g_work_ui_str;
@@ -55563,15 +55266,15 @@ LABEL_16:
       }
     }
     while ( !v6 );
-    ENT_X(g_ui_input_cursor_entity) = 0x16A00;
-    ENT_Y(g_ui_input_cursor_entity) = 0xB400;
+    ENT_X(g_ui_input_cursor_entity) = GAME_px_to_world(362);
+    ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(180);
     ENT_Z(g_ui_input_cursor_entity) = 10;
     ENT_anim_set(g_ui_input_cursor_entity, 1096);
     g_ui_input_locked = 1;
     INPUT_text_edit(name, 11u, UI_main_menu_multi_player_name_input_cb, 1, task);
     v10 = g_current_menu_controller->entity;
-    v11 = ENT_Y(v10) >> 8;
-    v12 = ENT_X(v10) >> 8;
+    v11 = GAME_world_to_px(ENT_Y(v10));
+    v12 = GAME_world_to_px(ENT_X(v10));
     INPUT_set_mouse_pos(v12, v11);
     g_ui_input_locked = 0;
     for ( j = 0; j < 10; ++j )
@@ -55583,8 +55286,8 @@ LABEL_16:
         name[j] = '_';
     }
     name[11] = 0;
-    ENT_X(g_ui_input_cursor_entity) = 0x16A00;
-    ENT_Y(g_ui_input_cursor_entity) = 0xB400;
+    ENT_X(g_ui_input_cursor_entity) = GAME_px_to_world(362);
+    ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(180);
     ENT_anim_clear(g_ui_input_cursor_entity);
   }
 }
@@ -55611,7 +55314,7 @@ void __fastcall UI_main_menu_multi_phone_number_input_cb(char *text, int cursor_
     while ( v4 );
   }
   ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
-  ENT_Y(g_ui_input_cursor_entity) = 0xEC00;
+  ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(236);
 }
 
 //----- (0043DD90) --------------------------------------------------------
@@ -55648,8 +55351,8 @@ void __cdecl UI_main_menu_multi_phone_number_input(Task *task)
   {
     TSK_terminate_with_entity(task);
   }
-  entity->x = 0x14E00;
-  entity->y = 0xE800;
+  entity->x = GAME_px_to_world(334);
+  entity->y = GAME_px_to_world(232);
   entity->z = 0x5A;
   v5 = task->entity;
   v6 = g_phone_number_static;
@@ -55698,8 +55401,8 @@ LABEL_16:
       }
     }
     while ( !v4 );
-    ENT_X(g_ui_input_cursor_entity) = 0x15000;
-    ENT_Y(g_ui_input_cursor_entity) = 0xEC00;
+    ENT_X(g_ui_input_cursor_entity) = GAME_px_to_world(336);
+    ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(236);
     ENT_Z(g_ui_input_cursor_entity) = 10;
     ENT_anim_set(g_ui_input_cursor_entity, 1096);
     g_ui_input_locked = 1;
@@ -55723,12 +55426,12 @@ LABEL_16:
     *(int *)&phonebook_->phone[4] = v13;
     *(int *)&phonebook_->phone[8] = v14;
     v15 = g_current_menu_controller->entity;
-    v16 = ENT_Y(v15) >> 8;
-    v17 = ENT_X(v15) >> 8;
+    v16 = GAME_world_to_px(ENT_Y(v15));
+    v17 = GAME_world_to_px(ENT_X(v15));
     INPUT_set_mouse_pos(v17, v16);
     g_ui_input_locked = 0;
-    ENT_X(g_ui_input_cursor_entity) = 0x15000;
-    ENT_Y(g_ui_input_cursor_entity) = 0xEC00;
+    ENT_X(g_ui_input_cursor_entity) = GAME_px_to_world(336);
+    ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(236);
     ENT_anim_clear(g_ui_input_cursor_entity);
     phone = (char *)phonebook_ + 0x14;                 // BUG  it's ->phone
     v4 = 0;
@@ -55753,8 +55456,8 @@ void __cdecl UI_main_menu_multi_modem_baud_selector(Task *task)
   {
     TSK_terminate_with_entity(task);
   }
-  entity->x = 0x7F00;
-  entity->y = 0x10800;
+  entity->x = GAME_px_to_world(127);
+  entity->y = GAME_px_to_world(264);
   entity->z = 90;
   v4 = task->entity;
   v5 = ENT_create(MobdId_MainMenu, nullptr, v4);
@@ -56137,7 +55840,7 @@ void __cdecl UI_main_menu_multi_modem_list_controller(Task *task)
   ENT_anim_set(g_ui_input_cursor_entity, 1080);
   while ( 1 )
   {
-    g_ui_input_cursor_entity->x = 0xA800;
+    g_ui_input_cursor_entity->x = GAME_px_to_world(168);
     v4 = 0;
     g_ui_input_cursor_entity->y = (v2 << 12) + 0x7800;
     g_ui_input_cursor_entity->z = 10;
@@ -56248,8 +55951,8 @@ void __cdecl UI_main_menu_multi_modem_up(Task *task)
   MenuWidget *v6; // edx
 
   entity = task->entity;
-  entity->x = 0x4400;
-  entity->y = 0xA800;
+  entity->x = GAME_px_to_world(68);
+  entity->y = GAME_px_to_world(168);
   v2 = task->entity;
   v2->parent = nullptr;
   task->channel = TaskChannel_CampaignFactionSelect;
@@ -56306,8 +56009,8 @@ void __cdecl UI_main_menu_multi_modem_down(Task *task)
   MenuWidget *v6; // edx
 
   entity = task->entity;
-  entity->x = 0x20200;
-  entity->y = 0xA000;
+  entity->x = GAME_px_to_world(514);
+  entity->y = GAME_px_to_world(160);
   v2 = task->entity;
   v2->parent = nullptr;
   task->channel = TaskChannel_CampaignFactionSelect;
@@ -56850,8 +56553,8 @@ void __cdecl UI_main_menu_multi_lobby_list(Task *task)
   v4 = UI_widget_register(v2, v3, 0, 1, 0);
   v4->flags |= 1u;
   ENT_anim_set(v2, 1080);
-  ENT_X(v2) = 0x5300;
-  ENT_Y(v2) = 0xEB00;
+  ENT_X(v2) = GAME_px_to_world(83);
+  ENT_Y(v2) = GAME_px_to_world(235);
   ENT_Z(v2) = 77;
   v2->rn->flags |= RenderNode_Skip;
   if ( g_lobby_list_guard_unused++ > 0 )
@@ -56971,13 +56674,10 @@ void __cdecl UI_main_menu_multi_session_list(Task *task)
   MenuWidget *v7; // eax
   int v8; // eax
   TaskEvents v9; // ebx
-  Coroutine *v10; // et1
-  Coroutine *v11; // et1
   int v12; // esi
   const char *session_name; // eax
   TaskMessage *i; // eax
   int v15; // eax
-  int v16; // [esp+0h] [ebp-18h] BYREF
   int v17; // [esp+Ch] [ebp-Ch]
   int v18; // [esp+10h] [ebp-8h]
   Entity *entity; // [esp+14h] [ebp-4h]
@@ -56998,7 +56698,7 @@ void __cdecl UI_main_menu_multi_session_list(Task *task)
     if ( v4 )
     {
       v4->task->ctx = v1;
-      v4->x = 0xC500;
+      v4->x = GAME_px_to_world(197);
       v4->y = v3;
       v4->z = 5;
     }
@@ -57024,8 +56724,8 @@ void __cdecl UI_main_menu_multi_session_list(Task *task)
       v7 = UI_widget_register(entity, v6, 0, 1, 0);
       v7->flags |= 1u;
       ENT_anim_set(v5, 1080);
-      ENT_X(v5) = 0xC500;
-      ENT_Y(v5) = 0x9800;
+      ENT_X(v5) = GAME_px_to_world(197);
+      ENT_Y(v5) = GAME_px_to_world(152);
       ENT_Z(v5) = 77;
       g_session_prev_count = -1;
       v18 = 1;
@@ -57095,7 +56795,7 @@ void __cdecl UI_main_menu_multi_session_list(Task *task)
         }
         v15 = g_session_selected;
         if ( v15 <= 0 )
-          ENT_Y(v5) = 0x9800;
+          ENT_Y(v5) = GAME_px_to_world(152);
         else
           ENT_Y(v5) = (g_session_selected << 12) + 0x9800;
       }
@@ -57163,21 +56863,12 @@ void __cdecl UI_main_menu_multi_join(Task *task)
   Entity *v2; // eax
   BOOL v3; // eax
   Entity *v4; // esi
-  UINT v5; // eax
-  Coroutine *v6; // et1
   NetzError player; // ecx
-  Coroutine *v8; // et1
   UINT v9; // eax
   int v10; // esi
-  Coroutine *v11; // et1
-  Coroutine *v12; // et1
-  Coroutine *v13; // et1
-  UINT v14; // eax
-  Coroutine *v15; // et1
   MenuWidget *v16; // eax
   int i; // ecx
   LevelMapd *mapd; // eax
-  _BYTE v19[12]; // [esp+0h] [ebp-Ch] BYREF
 
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenu, nullptr, entity);
@@ -57262,14 +56953,11 @@ void __cdecl UI_main_menu_multi_host(Task *task)
   BOOL v3; // eax
   clock_t v4; // eax
   unsigned int v5; // eax
-  Coroutine *v6; // et1
   NetzError v7; // ecx
-  Coroutine *v8; // et1
   MenuId v9; // ecx
   MenuWidget *v10; // eax
   int i; // ecx
   LevelMapd *mapd; // eax
-  int v13; // [esp+0h] [ebp-Ch] BYREF
 
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenu, nullptr, entity);
@@ -57335,8 +57023,6 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
   Entity *v5; // eax
   clock_t v6; // eax
   unsigned int v7; // eax
-  Coroutine *v8; // et1
-  Coroutine *v9; // et1
   Entity *v10; // eax
   Task *v11; // eax
   Entity *v12; // eax
@@ -57347,7 +57033,6 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
   Entity *v17; // eax
   Entity *v18; // eax
   Task *v19; // eax
-  int v20; // [esp+0h] [ebp-Ch] BYREF
 
   v1 = task;
   entity = task->entity;
@@ -57362,14 +57047,14 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
            nullptr);
     if ( v3 )
     {
-      v3->x = 0x2800;
-      v3->y = 0xF600;
+      v3->x = GAME_px_to_world(40);
+      v3->y = GAME_px_to_world(246);
     }
     v4 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_enemy_count_tech_level_str, TaskKind_Coroutine, nullptr);
     if ( v4 )
     {
-      v4->x = 0xB000;
-      v4->y = 0xF600;
+      v4->x = GAME_px_to_world(176);
+      v4->y = GAME_px_to_world(246);
     }
     v5 = ENT_create_ex(
            MobdId_MainMenu,
@@ -57379,8 +57064,8 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
            nullptr);
     if ( v5 )
     {
-      v5->x = 0x14800;
-      v5->y = 0xF600;
+      v5->x = GAME_px_to_world(328);
+      v5->y = GAME_px_to_world(246);
     }
   }
   else if ( g_previous_menu != MenuId_IpxSetup )
@@ -57406,14 +57091,14 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
   v12 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_starting_cash, TaskKind_Coroutine, nullptr);
   if ( v12 )
   {
-    v12->x = 0x12600;
-    v12->y = 0x4300;
+    v12->x = GAME_px_to_world(294);
+    v12->y = GAME_px_to_world(67);
   }
   v13 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_palette, TaskKind_Coroutine, nullptr);
   if ( v13 )
   {
-    v13->x = 0x3700;
-    v13->y = 0x6D00;
+    v13->x = GAME_px_to_world(55);
+    v13->y = GAME_px_to_world(109);
     v14 = v13->task;
     if ( v14 )
       v14->channel = v1->channel;
@@ -57421,8 +57106,8 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
   v15 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_map, TaskKind_Coroutine, nullptr);
   if ( v15 )
   {
-    v15->x = 0x11400;
-    v15->y = 0x6D00;
+    v15->x = GAME_px_to_world(276);
+    v15->y = GAME_px_to_world(109);
   }
   if ( g_current_menu == MenuId_Kaos )
   {
@@ -57433,21 +57118,21 @@ void __cdecl UI_main_menu_multi_host_lobby_init(Task *task)
     v16 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_tech, TaskKind_Coroutine, nullptr);
     if ( v16 )
     {
-      v16->x = 0x17C00;
-      v16->y = 0x9600;
+      v16->x = GAME_px_to_world(380);
+      v16->y = GAME_px_to_world(150);
     }
   }
   v17 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_tech_bunkers, TaskKind_Coroutine, nullptr);
   if ( v17 )
   {
-    v17->x = 0xE400;
-    v17->y = 0x9600;
+    v17->x = GAME_px_to_world(228);
+    v17->y = GAME_px_to_world(150);
   }
   v18 = ENT_create_ex(MobdId_MainMenu, entity, UI_main_menu_game_faction, TaskKind_Coroutine, nullptr);
   if ( v18 )
   {
-    v18->x = 0x2000;
-    v18->y = 0x9600;
+    v18->x = GAME_px_to_world(32);
+    v18->y = GAME_px_to_world(150);
     v19 = v18->task;
     if ( v19 )
       v19->channel = v1->channel;
@@ -57477,7 +57162,7 @@ void __fastcall UI_main_menu_game_player_name_cb(char *text, int cursor_pos)
     while ( v4 );
   }
   ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
-  ENT_Y(g_ui_input_cursor_entity) = 0x5800;
+  ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(88);
 }
 
 //----- (00440810) --------------------------------------------------------
@@ -57499,12 +57184,8 @@ void __cdecl UI_main_menu_game_player_name(Task *task)
   int v14; // ecx
   int v15; // esi
   char v16; // al
-  Coroutine *v17; // et1
-  UINT v18; // eax
-  Coroutine *v19; // et1
   Glyph *v20; // ecx
   int v21; // eax
-  int v22; // [esp+0h] [ebp-Ch] BYREF
 
   v1 = task;
   entity = task->entity;
@@ -57540,7 +57221,7 @@ void __cdecl UI_main_menu_game_player_name(Task *task)
     while ( v4 );
   }
   ENT_X(g_ui_input_cursor_entity) = glyphs->rn->cmd.x << 8;
-  ENT_Y(g_ui_input_cursor_entity) = 0x5800;
+  ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(88);
   entity->parent = g_ui_input_cursor_entity;
   v5 = v1->entity;
   v6 = g_work_ui_str;
@@ -57548,8 +57229,8 @@ void __cdecl UI_main_menu_game_player_name(Task *task)
   v1->channel = TaskChannel_TextInput;
   UI_widget_register(v5, v6, 0, 0, 0);
   ENT_anim_set(v5, 1368);
-  ENT_X(entity) = 0xA000;
-  ENT_Y(entity) = 0x5800;
+  ENT_X(entity) = GAME_px_to_world(160);
+  ENT_Y(entity) = GAME_px_to_world(88);
   while ( 1 )
   {
     if ( g_current_menu != MenuId_Kaos )
@@ -57594,15 +57275,15 @@ LABEL_29:
       }
     }
     while ( !v8 );
-    ENT_X(g_ui_input_cursor_entity) = 0xA000;
-    ENT_Y(g_ui_input_cursor_entity) = 0x5800;
+    ENT_X(g_ui_input_cursor_entity) = GAME_px_to_world(160);
+    ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(88);
     ENT_Z(g_ui_input_cursor_entity) = 10;
     ENT_anim_set(g_ui_input_cursor_entity, 1096);
     g_ui_input_locked = 1;
     INPUT_text_edit(g_ui_multi_player_name, 8u, UI_main_menu_game_player_name_cb, 1, v1);
     v12 = g_current_menu_controller->entity;
-    v13 = ENT_Y(v12) >> 8;
-    v14 = ENT_X(v12) >> 8;
+    v13 = GAME_world_to_px(ENT_Y(v12));
+    v14 = GAME_world_to_px(ENT_X(v12));
     INPUT_set_mouse_pos(v14, v13);
     v15 = 0;
     g_ui_input_locked = 0;
@@ -57617,8 +57298,8 @@ LABEL_29:
     }
     while ( v15 < 7 );
     LOBYTE(g_netz_player_flags) = 0;
-    ENT_X(g_ui_input_cursor_entity) = 0xA000;
-    ENT_Y(g_ui_input_cursor_entity) = 0x5800;
+    ENT_X(g_ui_input_cursor_entity) = GAME_px_to_world(160);
+    ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(88);
     ENT_anim_clear(g_ui_input_cursor_entity);
     if ( g_current_menu != MenuId_Kaos && g_netz_is_game_host )
     {
@@ -57641,7 +57322,7 @@ LABEL_29:
       while ( v21 );
     }
     ENT_X(g_ui_input_cursor_entity) = v20->rn->cmd.x << 8;
-    ENT_Y(g_ui_input_cursor_entity) = 0x5800;
+    ENT_Y(g_ui_input_cursor_entity) = GAME_px_to_world(88);
     if ( g_current_menu != MenuId_Kaos )
       NETZ_send_roster(NETZ_PKT_LOBBY_PLAYERS_BROADCAST, 0);
     v1 = task;
@@ -58238,12 +57919,6 @@ void __cdecl UI_main_menu_game_cancel(Task *task)
   Entity *entity; // edi
   Entity *v2; // eax
   LevelMapd *mapd; // eax
-  Coroutine *v4; // et1
-  UINT v5; // eax
-  Coroutine *v6; // et1
-  UINT v7; // eax
-  Coroutine *v8; // et1
-  Coroutine *v9; // et1
   MenuWidget *v10; // eax
   int j; // ecx
   LevelMapd *mapd__; // eax
@@ -58252,7 +57927,6 @@ void __cdecl UI_main_menu_game_cancel(Task *task)
   MenuWidget *v15; // eax
   int i; // ecx
   LevelMapd *mapd_; // eax
-  _BYTE v18[12]; // [esp+0h] [ebp-Ch] BYREF
 
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenu, nullptr, entity);
@@ -58369,14 +58043,9 @@ void __cdecl UI_main_menu_game_start(Task *task)
   Entity *v3; // eax
   clock_t v4; // eax
   int v5; // eax
-  UINT v6; // eax
   int v7; // edx
   int v8; // et2
-  Coroutine *v9; // et1
-  UINT v10; // eax
-  Coroutine *v11; // et1
   int v12; // edx
-  int v13; // [esp+0h] [ebp-Ch] BYREF
 
   v1 = task;
   g_lobby_ready_player_count = 0;
@@ -58409,7 +58078,7 @@ void __cdecl UI_main_menu_game_start(Task *task)
   srand(v4);
   v5 = rand();
   v8 = v5 % 0xFFFF;
-  v6 = v5 / 0xFFFF;
+  int v6 = v5 / 0xFFFF;
   v7 = v8;
   g_rand_seed_synced = v8;
   if ( g_current_menu == MenuId_Kaos )
@@ -58563,8 +58232,8 @@ void __cdecl UI_main_menu_game_allies_count_and_lobby_watch(Task *task)
   v8 = ENT_create_ex(MobdId_MainMenu, v5, UI_main_menu_game_palette, TaskKind_Coroutine, nullptr);
   if ( v8 )
   {
-    v8->x = 0x3700;
-    v8->y = 0x6D00;
+    v8->x = GAME_px_to_world(55);
+    v8->y = GAME_px_to_world(109);
     v9 = v8->task;
     if ( v9 )
       v9->channel = task->channel;
@@ -58572,8 +58241,8 @@ void __cdecl UI_main_menu_game_allies_count_and_lobby_watch(Task *task)
   v10 = ENT_create_ex(MobdId_MainMenu, v5, UI_main_menu_game_faction, TaskKind_Coroutine, nullptr);
   if ( v10 )
   {
-    v10->x = 0x2000;
-    v10->y = 0x9600;
+    v10->x = GAME_px_to_world(32);
+    v10->y = GAME_px_to_world(150);
     v11 = v10->task;
     if ( v11 )
       v11->channel = task->channel;
@@ -58587,20 +58256,20 @@ void __cdecl UI_main_menu_game_allies_count_and_lobby_watch(Task *task)
   v13 = ENT_create_ex(MobdId_MainMenu, v5, UI_main_menu_game_tech_bunkers_display, TaskKind_Coroutine, nullptr);
   if ( v13 )
   {
-    v13->x = 0xE400;
-    v13->y = 0x9600;
+    v13->x = GAME_px_to_world(228);
+    v13->y = GAME_px_to_world(150);
   }
   v14 = ENT_create_ex(MobdId_MainMenu, v5, UI_main_menu_game_map_display, TaskKind_Coroutine, nullptr);
   if ( v14 )
   {
-    v14->x = 0x11400;
-    v14->y = 0x6D00;
+    v14->x = GAME_px_to_world(276);
+    v14->y = GAME_px_to_world(109);
   }
   v15 = ENT_create_ex(MobdId_MainMenu, v5, UI_main_menu_game_enemy_count_tech_level_str, TaskKind_Coroutine, nullptr);
   if ( v15 )
   {
-    v15->x = 0x17C00;
-    v15->y = 0x9600;
+    v15->x = GAME_px_to_world(380);
+    v15->y = GAME_px_to_world(150);
   }
   TSK_terminate_with_entity(task);
 }
@@ -58614,9 +58283,6 @@ void __cdecl UI_main_menu_game_difficulty_or_leave_lobby_as_client(Task *task)
   int i; // eax
   Entity *v5; // edi
   Entity *v6; // eax
-  Coroutine *v7; // et1
-  UINT v8; // eax
-  Coroutine *v9; // et1
   Entity *v10; // eax
   int v11; // edx
   int v12; // ecx;
@@ -58626,7 +58292,6 @@ void __cdecl UI_main_menu_game_difficulty_or_leave_lobby_as_client(Task *task)
   MenuWidget *v16; // eax
   int j; // ecx
   LevelMapd *mapd_; // eax
-  int v19; // [esp+0h] [ebp-18h] BYREF
   char Buffer[12]; // [esp+Ch] [ebp-Ch] BYREF
 
   if ( g_current_menu == MenuId_Kaos )
@@ -58679,8 +58344,8 @@ void __cdecl UI_main_menu_game_difficulty_or_leave_lobby_as_client(Task *task)
   if ( g_ui_input_locked )
   {
     v10 = g_current_menu_controller->entity;
-    v11 = ENT_X(v10) >> 8;
-    v12 = ENT_Y(v10) >> 8;
+    v11 = GAME_world_to_px(ENT_X(v10));
+    v12 = GAME_world_to_px(ENT_Y(v10));
     INPUT_set_mouse_pos(v12, v11);
     g_ui_input_locked = 0;
     ENT_anim_clear(g_ui_input_cursor_entity);
@@ -58795,16 +58460,12 @@ void __cdecl UI_main_menu_multi_ipx_host(Task *task)
   Entity *entity; // edi
   Entity *v2; // eax
   UINT v3; // eax
-  Coroutine *v4; // et1
   NetzError v5; // edi
-  UINT v6; // eax
-  Coroutine *v7; // et1
   NetzProtocol v8; // edi
   MenuId v9; // ecx
   MenuWidget *v10; // eax
   int i; // ecx
   LevelMapd *mapd; // eax
-  int v13; // [esp+0h] [ebp-Ch] BYREF
 
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenu, nullptr, entity);
@@ -58872,21 +58533,13 @@ void __cdecl UI_main_menu_multi_ipx_join(Task *task)
   Entity *entity; // esi
   Entity *v2; // eax
   UINT v3; // eax
-  Coroutine *v4; // et1
   NetzError v5; // eax
-  Coroutine *v6; // et1
-  Coroutine *v7; // et1
   NetzError player; // esi
-  UINT v9; // eax
-  Coroutine *v10; // et1
   NetzJoinState v11; // eax
-  Coroutine *v12; // et1
-  Coroutine *v13; // et1
   NetzProtocol v14; // esi
   MenuWidget *v15; // eax
   int i; // ecx
   LevelMapd *mapd; // eax
-  _BYTE v18[12]; // [esp+0h] [ebp-Ch] BYREF
 
   entity = task->entity;
   v2 = ENT_create(MobdId_MainMenu, nullptr, entity);
@@ -60324,8 +59977,8 @@ void __fastcall UNIT_tanker_init(Unit *unit)
       v6 = v5->size != UnitSize_Regular ? 7424 : 4096;
     v7 = BOXD_place_unit_world_coords(
            unit,
-           v6 + (unit->entity->x & 0xFFFFE000),
-           v4 + (unit->entity->y & 0xFFFFE000),
+           v6 + (GAME_world_tile_floor(unit->entity->x)),
+           v4 + (GAME_world_tile_floor(unit->entity->y)),
            UnitPosition_Slot0);
     if ( v7 == UnitTilePosition_Invalid )
     {
@@ -60338,7 +59991,7 @@ void __fastcall UNIT_tanker_init(Unit *unit)
         v9 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
       else
         v9 = v8->size != UnitSize_Regular ? 7424 : 4096;
-      v10 = v9 + (unit->entity->x & 0xFFFFE000);
+      v10 = v9 + (GAME_world_tile_floor(unit->entity->x));
       v11 = unit->stats;
       unit->order_next_waypoint_x = v10;
       if ( v11->is_infantry )
@@ -60349,14 +60002,14 @@ void __fastcall UNIT_tanker_init(Unit *unit)
       y = entity->y;
       unit->order = UnitOrder_Move;
       unit->tile_position = v7;
-      v15 = v12 + (y & 0xFFFFE000);
+      v15 = v12 + (GAME_world_tile_floor(y));
       order_next_waypoint_x = unit->order_next_waypoint_x;
       unit->order_next_waypoint_y = v15;
       unit->order_target_x = order_next_waypoint_x;
       unit->order_target_y = v15;
       task = unit->task;
-      unit->map_x = entity->x >> 13;
-      unit->map_y = entity->y >> 13;
+      unit->map_x = GAME_world_to_tile(entity->x);
+      unit->map_y = GAME_world_to_tile(entity->y);
       task->message_handler = MSG_tanker;
       unit->mode = UNIT_mode_tanker_goto_drillrig_init;
     }
@@ -60368,7 +60021,7 @@ void __fastcall UNIT_tanker_init(Unit *unit)
       v20 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v20 = v19->size != UnitSize_Regular ? 7424 : 4096;
-    v21 = v20 + (unit->map_x << 13);
+    v21 = v20 + (GAME_tile_to_world(unit->map_x));
     v22 = unit->stats;
     unit->order_next_waypoint_x = v21;
     if ( v22->is_infantry )
@@ -60376,7 +60029,7 @@ void __fastcall UNIT_tanker_init(Unit *unit)
     else
       v23 = v22->size != UnitSize_Regular ? 7424 : 4096;
     v24 = unit->order_next_waypoint_x;
-    v25 = (unit->map_y << 13) + v23;
+    v25 = (GAME_tile_to_world(unit->map_y)) + v23;
     v26 = unit->task;
     unit->order_next_waypoint_y = v25;
     unit->order = UnitOrder_Move;
@@ -61597,6 +61250,7 @@ BOOL UI_str_init()
 }
 
 //----- (00445770) --------------------------------------------------------
+__attribute__((no_sanitize("alignment")))
 void __fastcall UI_str_set_text(UiStr *str, const char *text, GlyphDesc **font_remap_tbl)
 {
   const char *v3; // edi
@@ -62092,7 +61746,7 @@ void __fastcall UI_sidebar_mode_infantry_open(SidebarButton *button)
           prev->icon_entity = v4;
           v4->rn->transform = (RenderTransform)REND_transform_ui;
           y = v4->y;
-          ENT_Y(v4) = y - 0x400;
+          ENT_Y(v4) = y - WORLD_EIGHTH_TILE;
           ENT_Z(v4) = 3;
           ENT_anim_set(v4, g_factory_stripes[prev->factory_header_color_idx].sidebar_icon_mobd_frame);
         }
@@ -62124,7 +61778,7 @@ void __fastcall UI_sidebar_mode_order_unit(SidebarButton *button)
     PROD_enqueue_multiple(
       &g_cash.cash[g_player_num],
       &ctx->state,
-      (ctx->base_cost << 8) / ctx->production_time,
+      RATE_FP(ctx->base_cost, ctx->production_time),
       g_game_update_loop_task,
       ctx,
       ctx->key);
@@ -62194,7 +61848,7 @@ void __fastcall UI_sidebar_mode_vehicles_open(SidebarButton *button)
           next->icon_entity = v4;
           v4->rn->transform = (RenderTransform)REND_transform_ui;
           y = v4->y;
-          ENT_Y(v4) = y - 1024;
+          ENT_Y(v4) = y - WORLD_EIGHTH_TILE;
           ENT_Z(v4) = 3;
           ENT_anim_set(v4, g_factory_stripes[next->factory_header_color_idx].sidebar_icon_mobd_frame);
         }
@@ -63012,7 +62666,7 @@ LABEL_16:
     v23->rn->transform = (RenderTransform)REND_transform_ui;
     ENT_anim_set(g_sidebar_unused_slots, 72);
     ENT_X(g_sidebar_unused_slots) = (g_rend_screen_width - 32) << 8;
-    ENT_Y(g_sidebar_unused_slots) = 0x10000;
+    ENT_Y(g_sidebar_unused_slots) = GAME_px_to_world(256);
     g_sidebar_unused_slots->z = 0;
   }
   return 1;
@@ -63024,12 +62678,12 @@ void __fastcall UI_sidebar_mode_cash_open(SidebarButton *button)
   int v2; // edi
   int v3; // eax
 
-  v2 = UI_str_calc_height_wrapped("        0", 12);
-  v3 = UI_str_calc_width("        0", 12);
+  v2 = UI_str_calc_height_wrapped(g_player_cash_label, 12);
+  v3 = UI_str_calc_width(g_player_cash_label, 12);
   g_sidebar_cash_string = UI_str_create(
                             nullptr,
                             (FontMobd *)g_mobd[MobdId_Font_Main].layers[0],
-                            (ENT_X(button->entity) >> 8) - (8 * v3 + 24),
+                            (GAME_world_to_px(ENT_X(button->entity))) - (8 * v3 + 24),
                             ENT_Y(button->entity) >> 8,
                             v3 + 2,
                             v2 + 2,
@@ -63103,10 +62757,10 @@ void __cdecl UI_sidebar_refresh_loop(Task *task)
   {
     if ( g_sidebar_cash_string )
     {
-      sprintf("        0", " %8d", g_cash.cash[g_player_num]);
+      sprintf(g_player_cash_label, " %8d", g_cash.cash[g_player_num]);
       g_sidebar_cash_string->cursor_col = 0;
       g_sidebar_cash_string->cursor_row = 0;
-      UI_str_set_text(g_sidebar_cash_string, "        0", nullptr);
+      UI_str_set_text(g_sidebar_cash_string, g_player_cash_label, nullptr);
     }
     TSK_yield(task, TaskWait_Interval, 1);
   }
@@ -63154,7 +62808,7 @@ void AIRSTRIKE_try_unlock()
   int is_mute; // eax
   UnitType v1; // edx
 
-  if ( g_aircraft_unlocked || (g_lvl_desc[g_current_lvl_id].disabled_units_mask & 0x2000) != 0 )
+  if ( g_aircraft_unlocked || (g_lvl_desc[g_current_lvl_id].disabled_units_mask & DISABLED_UNITS_MASK_AIRCRAFT) != 0 )
     return;
   g_aircraft_unlocked = 1;
   if ( !g_is_kaos_mode )                        // INLINED
@@ -63356,8 +63010,8 @@ LABEL_15:
     }
   }
   BOXD_building_claim_area(unit);
-  unit->entity->x = ((unit->entity->x + unit->mobd_anchors.grid->x) & 0xFFFFE000) - unit->mobd_anchors.grid->x + 4096;
-  unit->entity->y = ((unit->entity->y + unit->mobd_anchors.grid->y) & 0xFFFFE000) - unit->mobd_anchors.grid->y + 4096;
+  unit->entity->x = (GAME_world_tile_floor(unit->entity->x + unit->mobd_anchors.grid->x)) - unit->mobd_anchors.grid->x + WORLD_HALF_TILE;
+  unit->entity->y = (GAME_world_tile_floor(unit->entity->y + unit->mobd_anchors.grid->y)) - unit->mobd_anchors.grid->y + WORLD_HALF_TILE;
   SHROUD_reveal(unit);
   UNIT_rendering_default(unit);
   if ( unit->player_num == g_player_num )
@@ -63664,9 +63318,9 @@ BOOL __fastcall TURRET_try_acquire_target(Turret *turret)
   parent = turret->parent;
   entity = parent->entity;
   v3 = parent->stats->firing_range >> 5;
-  v4 = (entity->x >> 13) - v3;
+  v4 = (GAME_world_to_tile(entity->x)) - v3;
   v5 = 2 * v3 + 1;
-  v6 = (entity->y >> 13) - v3;
+  v6 = (GAME_world_to_tile(entity->y)) - v3;
   v29 = v5;
   v7 = v5;
   v25 = v4;
@@ -63711,8 +63365,8 @@ BOOL __fastcall TURRET_try_acquire_target(Turret *turret)
                 if ( (stats->ai_threat_weight || stats->speed) && !v13->destroyed )
                 {
                   v15 = MATH_vec2_length(
-                          (turret->parent->entity->x - v13->entity->x) >> 8,
-                          (turret->parent->entity->y - v13->entity->y) >> 8);
+                          GAME_world_to_px(turret->parent->entity->x - v13->entity->x),
+                          GAME_world_to_px(turret->parent->entity->y - v13->entity->y));
                   v16 = turret->parent;
                   if ( v15 < v16->stats->firing_range )
                   {
@@ -63748,7 +63402,7 @@ BOOL __fastcall TURRET_try_acquire_target(Turret *turret)
     }
   }
   v20 = g_bomber_active_head;
-  if ( g_bomber_active_head == (Bomber *)&g_bomber_active_head )
+  if ( g_bomber_active_head == END(g_bomber_active_head) )
     return 0;
   while ( 1 )
   {
@@ -63761,8 +63415,8 @@ BOOL __fastcall TURRET_try_acquire_target(Turret *turret)
         if ( !v22->destroyed )
         {
           v23 = MATH_vec2_length(
-                  (turret->parent->entity->x - v22->entity->x) >> 8,
-                  (turret->parent->entity->y - v22->entity->y) >> 8);
+                  GAME_world_to_px(turret->parent->entity->x - v22->entity->x),
+                  GAME_world_to_px(turret->parent->entity->y - v22->entity->y));
           v24 = turret->parent;
           if ( v23 < v24->stats->firing_range )
           {
@@ -63773,7 +63427,7 @@ BOOL __fastcall TURRET_try_acquire_target(Turret *turret)
       }
     }
     v20 = v20->next;
-    if ( v20 == (Bomber *)&g_bomber_active_head )
+    if ( v20 == END(g_bomber_active_head) )
       return 0;
   }
   turret->target = v20->unit;
@@ -63834,8 +63488,8 @@ void __fastcall TURRET_mode_tower_attack_target(Turret *turret)
   v6 = turret->target;
   if ( !v6->destroyed
     && (v7 = MATH_vec2_length(
-               (turret->parent->entity->x - v6->entity->x) >> 8,
-               (turret->parent->entity->y - v6->entity->y) >> 8),
+               GAME_world_to_px(turret->parent->entity->x - v6->entity->x),
+               GAME_world_to_px(turret->parent->entity->y - v6->entity->y)),
         parent = turret->parent,
         v7 < parent->stats->firing_range)
     && BOXD_is_in_line_of_sight(parent, v6) )
@@ -63890,8 +63544,8 @@ void __fastcall TURRET_mode_track_target(Turret *turret)
   {
     if ( !target->destroyed
       && (v4 = MATH_vec2_length(
-                 (turret->parent->entity->x - target->entity->x) >> 8,
-                 (turret->parent->entity->y - target->entity->y) >> 8),
+                 GAME_world_to_px(turret->parent->entity->x - target->entity->x),
+                 GAME_world_to_px(turret->parent->entity->y - target->entity->y)),
           v5 = turret->parent,
           v4 < v5->stats->firing_range)
       && BOXD_is_in_line_of_sight(v5, target) )
@@ -63982,12 +63636,7 @@ void __fastcall TURRET_mode_attacking(Turret *turret)
     task->ctx = turret->target;
     v5->projectile_ctx.attacker = turret->parent;
     v5->projectile_ctx.attacker_unit_id = turret->parent->unit_id;
-    v5->infantry_damage = projectile_type->damage_to_infantry
-                        + ((projectile_type->damage_to_infantry * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-    v5->vehicle_damage = projectile_type->damage_to_vehicles
-                       + ((projectile_type->damage_to_vehicles * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-    v5->building_damage = projectile_type->damage_to_buildings
-                        + ((projectile_type->damage_to_buildings * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
+    ENT_set_projectile_damage(v5, projectile_type, turret->parent->veterancy);
     v5->parent = turret->entity->parent;
     TSK_send_message(turret->parent->task, TaskMessage_Attacked, turret->parent, turret->target->task);
   }
@@ -64181,8 +63830,8 @@ void __fastcall REND_transform_ui(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - anim_current_frame->x;
-    node->cmd.y = (entity->y >> 8) - entity->anim_current_frame->y;
+    node->cmd.x = (GAME_world_to_px(entity->x)) - anim_current_frame->x;
+    node->cmd.y = (GAME_world_to_px(entity->y)) - entity->anim_current_frame->y;
     node->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
   }
   else
@@ -64201,8 +63850,8 @@ void __fastcall REND_transform_cursor(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - (g_mapd_camera.x >> 8) - anim_current_frame->x;
-    node->cmd.y = (entity->y >> 8) - (g_mapd_camera.y >> 8) - entity->anim_current_frame->y;
+    node->cmd.x = (GAME_world_to_px(entity->x)) - (GAME_world_to_px(g_mapd_camera.x)) - anim_current_frame->x;
+    node->cmd.y = (GAME_world_to_px(entity->y)) - (GAME_world_to_px(g_mapd_camera.y)) - entity->anim_current_frame->y;
     node->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
   }
   else
@@ -64221,8 +63870,8 @@ void __fastcall REND_transform_explosion(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - (g_mapd_camera.x >> 8) - anim_current_frame->x;
-    node->cmd.y = (entity->y >> 8) - (g_mapd_camera.y >> 8) - entity->anim_current_frame->y;
+    node->cmd.x = (GAME_world_to_px(entity->x)) - (GAME_world_to_px(g_mapd_camera.x)) - anim_current_frame->x;
+    node->cmd.y = (GAME_world_to_px(entity->y)) - (GAME_world_to_px(g_mapd_camera.y)) - entity->anim_current_frame->y;
     node->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
   }
   else
@@ -64243,8 +63892,8 @@ void __fastcall REND_transform_airborne(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - (g_mapd_camera.x >> 8) - anim_current_frame->x;
-    node->cmd.y = (entity->y >> 8) - (entity->z >> 9) - (g_mapd_camera.y >> 8) - entity->anim_current_frame->y;
+    node->cmd.x = (GAME_world_to_px(entity->x)) - (GAME_world_to_px(g_mapd_camera.x)) - anim_current_frame->x;
+    node->cmd.y = (GAME_world_to_px(entity->y)) - (entity->z >> 9) - (GAME_world_to_px(g_mapd_camera.y)) - entity->anim_current_frame->y;
     node->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
   }
   else
@@ -64266,8 +63915,8 @@ void __fastcall REND_transform_aircraft_turret(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - (g_mapd_camera.x >> 8) - anim_current_frame->x;
-    v3 = (entity->y >> 8) - (entity->z >> 9) - (g_mapd_camera.y >> 8);
+    node->cmd.x = (GAME_world_to_px(entity->x)) - (GAME_world_to_px(g_mapd_camera.x)) - anim_current_frame->x;
+    v3 = (GAME_world_to_px(entity->y)) - (entity->z >> 9) - (GAME_world_to_px(g_mapd_camera.y));
     y = entity->anim_current_frame->y;
     node->cmd.z = 0x200001;
     node->cmd.y = v3 - y;
@@ -64289,8 +63938,8 @@ void __fastcall REND_transform_terrain_detail(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - (g_mapd_camera.x >> 8) - anim_current_frame->x;
-    node->cmd.y = (entity->y >> 8) - (entity->z >> 9) - (g_mapd_camera.y >> 8) - entity->anim_current_frame->y;
+    node->cmd.x = (GAME_world_to_px(entity->x)) - (GAME_world_to_px(g_mapd_camera.x)) - anim_current_frame->x;
+    node->cmd.y = (GAME_world_to_px(entity->y)) - (entity->z >> 9) - (GAME_world_to_px(g_mapd_camera.y)) - entity->anim_current_frame->y;
     sprt = entity->anim_current_frame->sprt;
     node->cmd.z = 1;
     node->cmd.image = (RenderImage *)sprt;
@@ -64308,8 +63957,8 @@ void __fastcall REND_transform_repair_anim(Entity *entity, RenderNode *n)
 {
   if ( entity->anim_current_frame )
   {
-    n->cmd.x = (entity->x - g_mapd_camera.x) >> 8;
-    n->cmd.y = (entity->y - g_mapd_camera.y) >> 8;
+    n->cmd.x = GAME_world_to_px(entity->x - g_mapd_camera.x);
+    n->cmd.y = GAME_world_to_px(entity->y - g_mapd_camera.y);
     n->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
   }
   else
@@ -64326,7 +63975,7 @@ void __fastcall REND_transform_building_overlay(Unit *unit, RenderNode *node)
   int v2; // eax
   int v3; // eax
 
-  node->cmd.x = (unit->mobd_anchors.render->x + unit->entity->x - g_mapd_camera.x - 8448) >> 8;
+  node->cmd.x = GAME_world_to_px(unit->mobd_anchors.render->x + unit->entity->x - g_mapd_camera.x - 8448);
   v2 = unit->mobd_anchors.render->y + unit->entity->y;
   if ( v2 - 3840 >= 0 )
     v3 = v2 - g_mapd_camera.y - 3840;
@@ -64348,7 +63997,7 @@ void __fastcall REND_transform_infantry_overlay(Unit *unit, RenderNode *node)
 
   entity = unit->entity;
   unit_ = unit;
-  node->cmd.x = (entity->x - g_mapd_camera.x - 2048) >> 8;
+  node->cmd.x = GAME_world_to_px(entity->x - g_mapd_camera.x - WORLD_QUARTER_TILE);
   y = g_mapd_camera.y;
   v5 = unit_->entity->y;
   node->cmd.z = 0x200000;
@@ -64360,8 +64009,8 @@ void __fastcall REND_transform_infantry_overlay(Unit *unit, RenderNode *node)
 //----- (004487B0) --------------------------------------------------------
 void __fastcall REND_transform_vehicle_overlay(Unit *unit, RenderNode *node)
 {
-  node->cmd.x = (unit->mobd_anchors.render->x + unit->entity->x - g_mapd_camera.x - 4096) >> 8;
-  node->cmd.y = (unit->mobd_anchors.render->y + unit->entity->y - g_mapd_camera.y - 1024) >> 8;
+  node->cmd.x = GAME_world_to_px(unit->mobd_anchors.render->x + unit->entity->x - g_mapd_camera.x - WORLD_HALF_TILE);
+  node->cmd.y = GAME_world_to_px(unit->mobd_anchors.render->y + unit->entity->y - g_mapd_camera.y - WORLD_EIGHTH_TILE);
   node->cmd.z = 0x200000;
   node->cmd.image = (RenderImage *)&unit->overlay_sprt;
   node->cmd.viewport = g_rend_default_viewport;
@@ -64370,8 +64019,8 @@ void __fastcall REND_transform_vehicle_overlay(Unit *unit, RenderNode *node)
 //----- (00448820) --------------------------------------------------------
 void __fastcall REND_transform_tanker_overlay(Unit *unit, RenderNode *node)
 {
-  node->cmd.x = (unit->entity->x - g_mapd_camera.x - 4096) >> 8;
-  node->cmd.y = (unit->entity->y - g_mapd_camera.y - 6400) >> 8;
+  node->cmd.x = GAME_world_to_px(unit->entity->x - g_mapd_camera.x - WORLD_HALF_TILE);
+  node->cmd.y = GAME_world_to_px(unit->entity->y - g_mapd_camera.y - 6400);
   node->cmd.z = 0x200000;
   node->cmd.image = (RenderImage *)&unit->overlay_sprt;
   node->cmd.viewport = g_rend_default_viewport;
@@ -64382,10 +64031,10 @@ void __fastcall REND_transform_aircraft_overlay(Unit *unit, RenderNode *node) {
   Entity *entity; // esi
 
   entity = unit->entity;
-  node->cmd.x = (entity->x + unit->mobd_anchors.render->x - g_mapd_camera.x - 4096) >> 8;
+  node->cmd.x = GAME_world_to_px(entity->x + unit->mobd_anchors.render->x - g_mapd_camera.x - WORLD_HALF_TILE);
   node->cmd.z = 0x400000;
   node->cmd.image = (RenderImage *)&unit->overlay_sprt;
-  node->cmd.y = (unit->entity->y - (unit->entity->z >> 1) - g_mapd_camera.y - 1024) >> 8;
+  node->cmd.y = (unit->entity->y - (unit->entity->z >> 1) - g_mapd_camera.y - WORLD_EIGHTH_TILE) >> 8;
   node->cmd.viewport = g_rend_default_viewport;
 }
 
@@ -64411,7 +64060,7 @@ BOOL __fastcall TURRET_is_target_in_range(Unit *attacker, Unit *target, int expe
     v9 = y - entity->y;
   v10 = entity->x;
   v11 = v10 - x <= 0 ? x - v10 : v10 - x;
-  return MATH_vec2_length(v11 >> 8, v9 >> 8) <= attacker->stats->firing_range
+  return MATH_vec2_length(GAME_world_to_px(v11), GAME_world_to_px(v9)) <= attacker->stats->firing_range
       && BOXD_is_in_line_of_sight(attacker, target);
 }
 
@@ -64587,12 +64236,7 @@ void __fastcall TURRET_mode_vehicle_fire(Turret *turret)
       task->ctx = turret->target;
       v7->projectile_ctx.attacker = turret->parent;
       v7->projectile_ctx.attacker_unit_id = turret->parent->unit_id;
-      v7->infantry_damage = projectile_type->damage_to_infantry
-                          + ((projectile_type->damage_to_infantry * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-      v7->vehicle_damage = projectile_type->damage_to_vehicles
-                         + ((projectile_type->damage_to_vehicles * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
-      v7->building_damage = projectile_type->damage_to_buildings
-                          + ((projectile_type->damage_to_buildings * g_veterancy_damage_mod[turret->parent->veterancy]) >> 8);
+      ENT_set_projectile_damage(v7, projectile_type, turret->parent->veterancy);
       v7->parent = turret->entity->parent;
       TSK_send_message(turret->parent->task, TaskMessage_Attacked, turret->parent, turret->target->task);
       attachment = turret->attachment;
@@ -64817,7 +64461,7 @@ void __cdecl UNIT_order_dispatcher(Task *task)
       return;
     case GameEvent_AssignedControlGroup:
       v8 = g_unit_list_head;
-      for ( group_num = event->payload[0]; v8 != (Unit *)&g_unit_list_head; v8 = v8->next )
+      for ( group_num = event->payload[0]; v8 != (Unit *)END(g_unit_list); v8 = v8->next )
       {
         v10 = ctx->player_num;
         v11 = v8->control_groups[v10];
@@ -64847,7 +64491,7 @@ void __cdecl UNIT_order_dispatcher(Task *task)
       }
       ctx->owns_selection = 0;
       v15 = g_unit_list_head;
-      if ( g_unit_list_head == (Unit *)&g_unit_list_head )
+      if ( g_unit_list_head == (Unit *)END(g_unit_list) )
         goto LABEL_95;
       v16 = ctx->player_num;
       do
@@ -64873,7 +64517,7 @@ void __cdecl UNIT_order_dispatcher(Task *task)
         }
         v15 = v15->next;
       }
-      while ( v15 != (Unit *)&g_unit_list_head );
+      while ( v15 != (Unit *)END(g_unit_list) );
       event->type = GameEvent_None;
       return;
     case GameEvent_MoveCommand:
@@ -65172,13 +64816,10 @@ void UNIT_order_dispatcher_terminate()
 //----- (00449820) --------------------------------------------------------
 void __cdecl NETZ_sync_loop(Task *task)
 {
-  UINT v1; // eax
   NetzPlayer * player; // eax
   DWORD Time; // ebx
   DWORD v4; // edi
-  UINT v5; // eax
-  Coroutine *v6; // et1
-  Coroutine *v7; // et1
+  int v5;
   NetzPlayer * player_; // eax
   GameEvent *v9; // eax
   int v10; // edx
@@ -65189,22 +64830,15 @@ void __cdecl NETZ_sync_loop(Task *task)
   _BYTE *v15; // edi
   int v16; // ebx
   NetzPlayer * _player; // edi
-  Coroutine *v18; // et1
-  Coroutine *v19; // et1
   NetzPlayer * __player; // eax
   int v21; // edx
   int v22; // esi
   NetzGameEvent *v23; // eax
   NetzPlayer *v24; // ecx
-  Coroutine *v25; // et1
-  Coroutine *v26; // et1
   BOOL v27; // ecx
   GameEvent *v28; // eax
-  Coroutine *v29; // et1
   NetzError v30; // eax
   NetzError v31; // esi
-  Coroutine *v32; // et1
-  _BYTE v33[12]; // [esp+0h] [ebp-70h] BYREF
   char a3; // [esp+Ch] [ebp-64h] BYREF
   char v35; // [esp+Dh] [ebp-63h] BYREF
   int v36; // [esp+68h] [ebp-8h]
@@ -65446,16 +65080,7 @@ BOOL __fastcall NETZ_wait_for_packets(int *pending_count, int timeout_ms, const 
 
   DWORD time_; // esi
   UINT v5; // eax
-  Coroutine *v6; // et1
-  Coroutine *v7; // et1
   NetzPlayer *v8; // esi
-  Coroutine *v9; // et1
-  UINT v10; // eax
-  Coroutine *v11; // et1
-  Coroutine *v12; // et1
-  UINT v13; // eax
-  Coroutine *v14; // et1
-  _BYTE v16[12]; // [esp+0h] [ebp-14h] BYREF
   unsigned int v17; // [esp+Ch] [ebp-8h]
   DWORD Time; // [esp+10h] [ebp-4h]
 
@@ -65510,12 +65135,7 @@ void NETZ_signal_game_over()
 {
   UINT v0; // eax
   NetzPlayer * player; // esi
-  Coroutine *v2; // et1
-  Coroutine *v3; // et1
   UINT v4; // eax
-  Coroutine *v5; // et1
-  Coroutine *v6; // et1
-  _BYTE v7[8]; // [esp+0h] [ebp-8h] BYREF
 
   v0 = g_netz_is_game_host;
   if ( g_netz_is_game_host )
@@ -65567,9 +65187,6 @@ void __fastcall NETZ_broadcast(NetzPacketType pkt, const void *data, const size_
   UINT v3; // eax
   int v4; // edi
   NetzPlayer * player; // esi
-  Coroutine *v6; // et1
-  Coroutine *v7; // et1
-  int v8; // [esp-Ch] [ebp-14h] BYREF
   void *data_; // [esp+0h] [ebp-8h]
   char a2; // [esp+7h] [ebp-1h]
 
@@ -65616,18 +65233,11 @@ void __fastcall NETZ_broadcast_mandatory_response(NetzPacketType pkt, void *data
   UINT v6; // eax
   int v7; // edi
   NetzPlayer * player_; // esi
-  Coroutine *v9; // et1
-  Coroutine *v10; // et1
   UINT v11; // eax
-  Coroutine *v12; // et1
-  Coroutine *v13; // et1
   NetzPlayer * _player; // eax
   UINT v15; // eax
   int v16; // edi
   NetzPlayer * _player_; // esi
-  Coroutine *v18; // et1
-  Coroutine *v19; // et1
-  _BYTE v20[12]; // [esp+0h] [ebp-18h] BYREF
   DWORD Time; // [esp+Ch] [ebp-Ch]
   void *data_; // [esp+10h] [ebp-8h]
   NetzPacketType pkt_; // [esp+17h] [ebp-1h]
@@ -65900,7 +65510,6 @@ BOOL MINI_init()
   unsigned __int8 *v32; // eax
   int v33; // ecx
   int v34; // ecx
-  int *v35; // eax
   char v36; // dl
   unsigned __int8 *pixels; // [esp+10h] [ebp-24h]
   int *v38; // [esp+14h] [ebp-20h]
@@ -66230,13 +65839,13 @@ void MINI_draw()
     {
       case 1:
       case 2:
-        for ( j = g_unit_list_head; j != (Unit *)&g_unit_list_head; j = j->next )
+        for ( j = g_unit_list_head; j != (Unit *)END(g_unit_list); j = j->next )
         {
           if ( j->player_num == g_player_num )
           {
             entity = j->entity;
-            v9 = 2 * (ENT_X(entity) >> 13);
-            v10 = 2 * (ENT_Y(entity) >> 13);
+            v9 = 2 * (GAME_world_to_tile(ENT_X(entity)));
+            v10 = 2 * (GAME_world_to_tile(ENT_Y(entity)));
             if ( v9 >= 0 && v9 < g_minimap_width && v10 >= 0 && v10 < g_minimap_height )
             {
               v11 = (char *)g_minimap_dst_pixels + v9 + i * v10;
@@ -66265,13 +65874,13 @@ void MINI_draw()
       case 3:
       case 4:
       case 5:
-        for ( k = g_unit_list_head; k != (Unit *)&g_unit_list_head; k = k->next )
+        for ( k = g_unit_list_head; k != (Unit *)END(g_unit_list); k = k->next )
         {
           if ( k->player_num )
           {
             v15 = k->entity;
-            v16 = 2 * (ENT_X(v15) >> 13);
-            v17 = 2 * (ENT_Y(v15) >> 13);
+            v16 = 2 * (GAME_world_to_tile(ENT_X(v15)));
+            v17 = 2 * (GAME_world_to_tile(ENT_Y(v15)));
             if ( v16 >= 0 && v16 < g_minimap_width && v17 >= 0 && v17 < g_minimap_height )
             {
               v18 = (char *)g_minimap_dst_pixels + v16 + i * v17;
@@ -66360,7 +65969,7 @@ void MINI_draw()
 //----- (0044B0D0) --------------------------------------------------------
 BOOL __fastcall SHROUD_is_revealed(int word_x, int world_y)
 {
-  return *(&g_shroud_grid[g_fog_of_war_num_tiles_x * ((world_y >> 13) + 2) + 2] + (word_x >> 13)) != g_shroud_full_opaque;// BUG don't need *&
+  return *(&g_shroud_grid[g_fog_of_war_num_tiles_x * ((GAME_world_to_tile(world_y)) + 2) + 2] + (GAME_world_to_tile(word_x))) != g_shroud_full_opaque;// BUG don't need *&
 }
 
 //----- (0044B100) --------------------------------------------------------
@@ -66447,8 +66056,8 @@ void __fastcall SHROUD_reveal(Unit *unit)
   {
     entity = unit->entity;
     view_range = unit->stats->view_range;
-    v3 = 2 * (ENT_X(entity) >> 13);
-    v4 = 2 * (ENT_Y(entity) >> 13);
+    v3 = 2 * (GAME_world_to_tile(ENT_X(entity)));
+    v4 = 2 * (GAME_world_to_tile(ENT_Y(entity)));
     dirty_x = v3;
     dirty_y = v4;
     if ( view_range <= 128 )
@@ -67139,11 +66748,11 @@ void __fastcall REND_transform_unit_turret(Entity *entity, RenderNode *node)
     anim_current_frame = entity->anim_current_frame;
     if ( anim_current_frame )
     {
-      node->cmd.x = ((parent->mobd_anchors.turret->x + parent->entity->x - g_mapd_camera.x) >> 8)
+      node->cmd.x = (GAME_world_to_px(parent->mobd_anchors.turret->x + parent->entity->x - g_mapd_camera.x))
                   - anim_current_frame->x;
-      node->cmd.y = ((parent->mobd_anchors.turret->y + parent->entity->y - g_mapd_camera.y) >> 8)
+      node->cmd.y = (GAME_world_to_px(parent->mobd_anchors.turret->y + parent->entity->y - g_mapd_camera.y))
                   - entity->anim_current_frame->y;
-      node->cmd.z = ((parent->entity->z + parent->entity->y) >> 8) + 1;
+      node->cmd.z = (GAME_world_to_px(parent->entity->z + parent->entity->y)) + 1;
       node->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
     }
     else
@@ -67403,8 +67012,8 @@ BOOL GAME_mission_init()
     v0 = g_unit_pool;
   }
   g_unit_pool[598].next = nullptr;
-  g_unit_list_head = (Unit *)&g_unit_list_head;
-  g_unit_list_tail = (Unit *)&g_unit_list_head;
+  g_unit_list.next = END(g_unit_list);
+  g_unit_list.prev = END(g_unit_list);
   v2 = (UnitEscortNode *)malloc(0x1770u); // 500
   g_escort_pool = v2;
   if ( !v2 )
@@ -67496,9 +67105,9 @@ void __fastcall REND_project_isometric(Entity *entity, RenderNode *node)
   anim_current_frame = entity->anim_current_frame;
   if ( anim_current_frame )
   {
-    node->cmd.x = (entity->x >> 8) - (g_mapd_camera.x >> 8) - anim_current_frame->x;
-    node->cmd.y = (entity->y >> 8) - (g_mapd_camera.y >> 8) - (entity->z >> 9) - entity->anim_current_frame->y;
-    node->cmd.z = (entity->z + entity->y) >> 8;
+    node->cmd.x = (GAME_world_to_px(entity->x)) - (GAME_world_to_px(g_mapd_camera.x)) - anim_current_frame->x;
+    node->cmd.y = (GAME_world_to_px(entity->y)) - (GAME_world_to_px(g_mapd_camera.y)) - (entity->z >> 9) - entity->anim_current_frame->y;
+    node->cmd.z = GAME_world_to_px(entity->z + entity->y);
     node->cmd.image = (RenderImage *)entity->anim_current_frame->sprt;
   }
   else
@@ -67524,7 +67133,7 @@ void GAME_update_anim_anchors_and_minimap()
   {
     if ( !g_netz_sync_pause )
       ++g_victory_condition_ticks;
-    for ( i = g_unit_list_head; i != (Unit *)&g_unit_list_head; i = i->next )
+    for ( i = g_unit_list_head; i != (Unit *)END(g_unit_list); i = i->next )
     {
       p_mobd_anchors = &i->mobd_anchors;
       UNIT_anchors_reset(i);
@@ -67577,7 +67186,7 @@ void GAME_mission_cleanup()
   AI_cleanup();
   UNIT_order_dispatcher_terminate();
   free(g_escort_pool);
-  for ( i = g_unit_list_head; g_unit_list_head != (Unit *)&g_unit_list_head; i = g_unit_list_head )
+  for ( i = g_unit_list_head; g_unit_list_head != (Unit *)END(g_unit_list); i = g_unit_list_head )
   {
     player_num = i->player_num;
     if ( player_num == g_player_num )
@@ -67695,7 +67304,7 @@ LABEL_18:
   entity->rn->flags |= RenderNode_PaletteOverride;
   TSK_broadcast_message(task, TaskMessage_UnitCreated, v1, TaskChannel_UnitEvents);
   v12 = g_unit_list_head;
-  v1->prev = (Unit *)&g_unit_list_head;
+  v1->prev = (Unit *)END(g_unit_list);
   v1->next = v12;
   g_unit_list_head->prev = v1;
   g_unit_list_head = v1;
@@ -67772,7 +67381,7 @@ Task *CURSOR_box_query_next()
   Task *result; // eax
 
   v0 = g_box_query_head;
-  if ( g_box_query_head == (Unit *)&g_unit_list_head )
+  if ( g_box_query_head == (Unit *)END(g_unit_list) )
     return nullptr;
   while ( 1 )
   {
@@ -67794,7 +67403,7 @@ Task *CURSOR_box_query_next()
     }
     v0 = v0->next;
     g_box_query_head = v0;
-    if ( v0 == (Unit *)&g_unit_list_head )
+    if ( v0 == (Unit *)END(g_unit_list) )
       return nullptr;
   }
   result = v0->task;
@@ -67808,12 +67417,12 @@ Unit *__fastcall UINT_find_by_id(int unit_id)
   Unit *result; // eax
 
   result = g_unit_list_head;
-  if ( g_unit_list_head == (Unit *)&g_unit_list_head )
+  if ( g_unit_list_head == (Unit *)END(g_unit_list) )
     return nullptr;
   while ( result->unit_id != unit_id )
   {
     result = result->next;
-    if ( result == (Unit *)&g_unit_list_head )
+    if ( result == (Unit *)END(g_unit_list) )
       return nullptr;
   }
   return result;
@@ -67841,7 +67450,7 @@ Unit *__fastcall UNIT_find_nearest_of_type(Unit *unit, UnitType type, int player
 
   v3 = g_unit_list_head;
   min_distance = 0x7FFFFFFF;
-  for ( nearest = nullptr; v3 != (Unit *)&g_unit_list_head; v3 = v3->next )
+  for ( nearest = nullptr; v3 != (Unit *)END(g_unit_list); v3 = v3->next )
   {
     if ( v3->type == type && v3->player_num == player_num )
     {
@@ -67996,8 +67605,8 @@ void __cdecl UI_show_notification_box_task(Task *task)
       {
         x = ENT_X(entity);
         y = ENT_Y(entity);
-        v7 = (x - g_mapd_camera.x) >> 8;
-        v8 = (y - g_mapd_camera.y) >> 8;
+        v7 = GAME_world_to_px(x - g_mapd_camera.x);
+        v8 = GAME_world_to_px(y - g_mapd_camera.y);
         if ( v7 < 0x80 )
           v7 = 128;
         if ( v7 > (unsigned int)(g_rend_screen_width - 128) )
@@ -68117,8 +67726,8 @@ void __cdecl UI_show_message_multi_chat_task(Task *task)
       {
         x = ENT_X(entity);
         y = ENT_Y(entity);
-        v7 = (x - g_mapd_camera.x) >> 8;
-        v8 = (y - g_mapd_camera.y) >> 8;
+        v7 = GAME_world_to_px(x - g_mapd_camera.x);
+        v8 = GAME_world_to_px(y - g_mapd_camera.y);
         if ( v7 < 128 )
           v7 = 128;
         if ( v7 > g_rend_screen_width - 128 )
@@ -68185,8 +67794,8 @@ int __fastcall BOXD_scan_walk_find_next_tile(Unit *unit)
   int v28[8]; // [esp+1Ch] [ebp-20h]
 
   entity = unit->entity;
-  v3 = entity->y >> 13;
-  v4 = entity->x >> 13;
+  v3 = GAME_world_to_tile(entity->y);
+  v4 = GAME_world_to_tile(entity->x);
   v5 = 0;
   v26 = v4;
   v24 = 0;
@@ -68255,21 +67864,21 @@ LABEL_30:
       v20 = BOXD_adjust_unit_position_x(unit, unit->tile_position);
     else
       v20 = stats->size != UnitSize_Regular ? 7424 : 4096;
-    v21 = v20 + (unit->path_next_tile_x << 13);
+    v21 = v20 + (GAME_tile_to_world(unit->path_next_tile_x));
     v22 = unit->stats;
     unit->order_next_waypoint_x = v21;
     if ( v22->is_infantry )
       v23 = BOXD_adjust_unit_position_y(unit, unit->tile_position);
     else
       v23 = v22->size != UnitSize_Regular ? 7424 : 4096;
-    unit->order_next_waypoint_y = v23 + (unit->path_next_tile_y << 13);
+    unit->order_next_waypoint_y = v23 + (GAME_tile_to_world(unit->path_next_tile_y));
     return 1;
   }
   else
   {
     v16 = unit->entity;
-    unit->path_next_tile_x = v16->x >> 13;
-    unit->path_next_tile_y = v16->y >> 13;
+    unit->path_next_tile_x = GAME_world_to_tile(v16->x);
+    unit->path_next_tile_y = GAME_world_to_tile(v16->y);
     return 0;
   }
 }

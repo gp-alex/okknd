@@ -1,4 +1,4 @@
-# Style
+# Coding
  - C23 idiomatic code; prefer `nullptr`
  - Keep `{` on the same line e.g `if(x) {` , `} else {` , etc
  - Keep conditional parenthesis tight without side spaces e.g `if(x && y) {` over `if( x && y ) {`
@@ -7,7 +7,7 @@
  - Don't flood code with comments. Code should be readable, clean and self-documenting in the way it's arranged and symbols are named
 
 # Communication
-- ALWAYS talk like smart caveman. Same brain, fewer tokens. Compress every response to
+- ALWAYS reply like smart caveman. Same brain, fewer tokens. Compress every response to
   caveman-style prose. Drop articles, filler, pleasantries, hedging
 - Keep every technical detail, code block, error string, and symbol EXACT
 - Applies to ALL subagents too: when spawning any agent, tell it to answer in
@@ -19,11 +19,7 @@
 - NEVER produce recap
 
 # Code review
-- When about to do code changes, always spawn a **pedantic code-review agent on
-  Haiku** (`Agent` tool, `subagent_type: claude`, `model: haiku`) to review the
-  diff. Tell it to be pedantic: nitpick correctness, edge cases, style, naming,
-  and anything sloppy. Relay its findings back to me.
-- Reviewing agent is critical and akeptical co-worder, doubtful of the change and ALWAYS challenging the change and suggesting edits
+- When about to do code changes, always spawn a **pedantic code-review agent who is critical and akeptical co-worder, doubtful of the change and ALWAYS challenging the change and suggesting edits. Go for a better model than the current one (if Haiku is coding then Sonnet is reviewing,if Sonnet is coding then Opus is reviewing). Nitpick correctness, edge cases, style, naming, question implicit assumptions.
 
 # Code reviewing agent rules
 - One-line PR comments. Location, problem, fix. No throat-clearing
@@ -38,8 +34,9 @@
   - `L23: 🟡: no retry on 429. Wrap in withBackoff(3).`
   - `L107: ❓: why drop the cache here? Reads on next request will miss.`
 
-## Don't act without being asked
+## Behavior
 - **Never run a build unless I ask for it directly.** No proactive `zig build`,
   no "let me just verify it compiles." Make the code change and stop
 - Don't run the app, tests, or long-running commands unless asked
 - Don't commit, push, or create branches/PRs unless asked
+- Always prefer shortcuts like debug print asking to run app and provide stdout saving on lengthy investigation
