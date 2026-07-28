@@ -2509,8 +2509,8 @@ struct AiController {
   char _ai_controller_1BC[60];
   int _ai_controller_1F8;
   int _ai_controller_1FC;
-  int _ai_controller_200_head;
-  int _ai_controller_200_tail;
+  intptr_t _ai_controller_200_head;  // self-pointer sentinel, never read back as int
+  intptr_t _ai_controller_200_tail;
   char _ai_controller_208[60];
   int _ai_controller_244;
   int _ai_controller_248;
