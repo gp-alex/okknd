@@ -2,11 +2,6 @@
     .name = .kknd,
     .version = "0.1.0",
     .fingerprint = 0x384068b7f143e86c,
-    .dependencies = .{
-        .raylib = .{
-            .url = "git+https://github.com/raysan5/raylib?ref=master#a4680fc67734754138650138f11c54dc798ede56",
-            .hash = "raylib-6.0.0-whq8uCSwLgWWeF3ec3dbG6Rr36SLFL-s2WJ1Q_2E22Bb",
-        },
-    },
+    .dependencies = .{},
     .paths = .{""},
 }

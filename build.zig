@@ -7,13 +7,6 @@ fn addKknd(
     c_flags: []const []const u8,
     name: []const u8,
 ) *std.Build.Step.Compile {
-    // --- raylib (from zig package manager) ---
-    const raylib_dep = b.dependency("raylib", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const raylib_lib = raylib_dep.artifact("raylib");
-
     // --- kknd executable ---
     const kknd_mod = b.createModule(.{
         .target = target,
@@ -28,19 +21,26 @@ fn addKknd(
 
     kknd_mod.addIncludePath(b.path("src/kknd"));
     kknd_mod.addSystemIncludePath(b.path("vendor"));
-    kknd_mod.addIncludePath(raylib_dep.path("src"));
-    kknd_mod.linkLibrary(raylib_lib);
 
-    // Windows/DirectX import libs. zig's bundled mingw ships .def files for these
-    // and synthesizes the import lib at link time, so nothing needs vendoring.
-    for ([_][]const u8{ "ddraw", "dsound", "version" }) |lib| {
-        kknd_mod.linkSystemLibrary(lib, .{});
-    }
-    // dplayx (DirectPlay) is a deprecated API with no x64 import lib in zig's
-    // mingw. Only link it for x86; on x64 the DirectPlay entry points we import
-    // are stubbed in kknd.c (LAN/DirectPlay multiplayer disabled there).
+    kknd_mod.linkSystemLibrary("version", .{});
+    kknd_mod.linkSystemLibrary("gdi32", .{});
+    kknd_mod.linkSystemLibrary("winmm", .{});
+
     if (target.result.cpu.arch != .x86_64) {
-        kknd_mod.linkSystemLibrary("dplayx", .{});
+        // Windows/DirectX import libs, x86 only. zig's bundled mingw ships .def
+        // files for these and synthesizes the import lib at link time, so
+        // nothing needs vendoring. dplayx (DirectPlay) has no x64 import lib in
+        // zig's mingw at all; the DirectPlay entry points kknd.c imports are
+        // stubbed out there (LAN/DirectPlay multiplayer disabled on x64).
+        for ([_][]const u8{ "ddraw", "dsound", "dplayx" }) |lib| {
+            kknd_mod.linkSystemLibrary(lib, .{});
+        }
+    } else {
+        // x64 drops DirectDraw/DirectSound for wgpu-native (WebGPU), vendored
+        // as prebuilt gnu-ABI binaries matching zig's bundled mingw.
+        kknd_mod.addSystemIncludePath(b.path("vendor/wgpu-native/include"));
+        kknd_mod.addLibraryPath(b.path("vendor/wgpu-native/lib"));
+        kknd_mod.linkSystemLibrary("wgpu_native", .{});
     }
 
     return b.addExecutable(.{
@@ -50,12 +50,10 @@ fn addKknd(
 }
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{
-        .default_target = .{
-            .cpu_arch = .x86,
-            .os_tag = .windows,
-        }
-    });
+    const target = b.standardTargetOptions(.{ .default_target = .{
+        .cpu_arch = .x86,
+        .os_tag = .windows,
+    } });
     const optimize = b.standardOptimizeOption(.{});
 
     // Windows target defaults to CodeView-only debug info (-> kknd.pdb), which gdb
@@ -70,6 +68,7 @@ pub fn build(b: *std.Build) void {
 
     // --- 32-bit x86 (default, honours -Dtarget=...) ---
     const kknd = addKknd(b, target, optimize, c_flags, "kknd");
+    kknd.subsystem = .console;
     b.installArtifact(kknd);
 
     const run_cmd = b.addRunArtifact(kknd);
@@ -86,7 +85,20 @@ pub fn build(b: *std.Build) void {
         .os_tag = .windows,
     });
     const kknd_x64 = addKknd(b, target_x64, optimize, c_flags, "kknd-x64");
+    kknd_x64.subsystem = if (optimize == .Debug)
+        .console
+    else
+        .windows;
     b.installArtifact(kknd_x64);
+
+    // wgpu_native.dll must sit next to kknd-x64.exe; it's linked dynamically
+    // via the vendored import lib (see addKknd).
+    const install_wgpu_dll = b.addInstallFileWithDir(
+        b.path("vendor/wgpu-native/lib/wgpu_native.dll"),
+        .bin,
+        "wgpu_native.dll",
+    );
+    b.getInstallStep().dependOn(&install_wgpu_dll.step);
 
     const run_x64 = b.addRunArtifact(kknd_x64);
     run_x64.step.dependOn(b.getInstallStep());

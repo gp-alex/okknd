@@ -12,12 +12,21 @@
 #include <time.h> // clock_t, clock
 #include <process.h> // _beginthread, _endthread
 
+
+#undef UNICODE
+#undef _UNICODE
+//#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
 #include <math.h>
 
 #include <ddraw.h>
 #include <dplay.h>
 #include <dsound.h>
+
+#if defined(__x86_64__) || defined(_M_X64)
+  #include <webgpu/wgpu.h>
+#endif
 
 #ifndef nullptr
   #define nullptr NULL
@@ -839,6 +848,11 @@ typedef struct {
 
 typedef struct {
   MobdId mobd_id;
+  // Real TaskFn in compiled-in spawn tables (g_*_spawn_params assign real fns).
+  // In the on-disk CPLC it holds a dead scalar (0-5; the runtime task comes from
+  // g_scripts[task_type]), yet it is pointer-sized so on x64 the on-disk 4-byte
+  // slot is widened (value-preserving) to keep the packed layout aligned - see
+  // the x64 null/scalar table (tools/gen_x64_nulls.py) + kknd-x64-sections memory.
   TaskFn task;
   TaskKind task_kind;
   BOOL skip_spawning;
@@ -1198,6 +1212,19 @@ typedef struct {
   MobdPoint *dock_point;
 } UnitMobdAnchors;
 
+// An anchor's MobdPoint.id doubles as its slot index into UnitMobdAnchors.
+// Anchor lists in a MobdAnimFrame are terminated by MobdAnchorId_ListEnd.
+typedef enum {
+  MobdAnchorId_Turret = 0,
+  MobdAnchorId_Rally = 1,
+  MobdAnchorId_Render = 2,
+  MobdAnchorId_Grid = 3,
+  MobdAnchorId_Unused = 4,
+  MobdAnchorId_DockPoint = 5,
+  MobdAnchorId_Count = 6,
+  MobdAnchorId_ListEnd = -1,
+} MobdAnchorId;
+
 
 typedef struct UnitEscortNode UnitEscortNode;
 struct UnitEscortNode {
@@ -1502,7 +1529,7 @@ typedef struct {
   int tile_y_size;
   int num_x_tiles;
   int num_y_tiles;
-  MapdScrlImageTile *tiles[16];
+  MapdScrlImageTile *tiles[1];  // num_x_tiles x num_y_tiles
 } __attribute__((packed)) MapdScrlImage;
 
 typedef struct {
@@ -1557,6 +1584,7 @@ typedef struct {
 } __attribute__((packed)) LevelMobd;
 
 typedef enum : unsigned int {
+  MenuId_Splash = 0,
   MenuId_Main = 0,
   MenuId_Multiplayer = 1,
   MenuId_NewCampaign = 2,
@@ -1717,6 +1745,7 @@ typedef enum : unsigned __int8
   TerrainTileFlags1_InfantrySlot2     = 0x4,
   TerrainTileFlags1_InfantrySlot3     = 0x8,
   TerrainTileFlags1_InfantrySlot4     = 0x10,
+  TerrainTileFlags1_InfantrySlotsAll  = 0x1F,  // all 5 infantry slots occupied
   TerrainTileFlags1_Obstructed        = 0x20,  // Obstructed terrain (edges of landscape features)
   TerrainTileFlags1_Blocked           = 0x40,  // Blocked terrain (impassable - buildings with speed=0 also set this)
   TerrainTileFlags1_Impassible        = 0x60,  // Obstructed|Blocked
@@ -1734,6 +1763,14 @@ typedef enum : unsigned __int8
   TerrainTileFlags2_CantPlaceBuilding = 0x40,
   TerrainTileFlags2_OilPatch          = 0x80,
 } TerrainTileFlags2;
+
+// BoxdAabb.type code for the terrain-feature AABBs that LVL_terrain_init stamps
+// into the tile grid (distinct from BoxdCollisionType, which shares the field).
+typedef enum {
+  BoxdTerrainType_Blocked    = 6,  // impassable wall  -> TerrainTileFlags1_Blocked
+  BoxdTerrainType_Obstructed = 7,  // feature edge     -> TerrainTileFlags1_Obstructed
+  BoxdTerrainType_NoBuild    = 8,  // no building zone -> TerrainTileFlags2_CantPlaceBuilding
+} BoxdTerrainType;
 
 typedef struct {
   TerrainTileFlags1 flags1;
@@ -3359,6 +3396,49 @@ typedef enum {
   MOBD_CURSOR_UNAVAILABLE = 0x124,
   MOBD_CURSOR_MOVE_ACK = 0x1FC,
   MOBD_CURSOR_UPGRADE_CANCEL = 0x118,
+
+  // ---------------------------------------------------------------------------
+  // Additional hardcoded ENT_anim_* offsets, named from call-site context (see
+  // tools/ analysis). NOTE: an offset is only meaningful relative to ITS surface
+  // (g_mobd[entity->mobd_id].layers[0]); values below come from different
+  // surfaces, grouped by comment. Names are inferred - verify before relying on
+  // semantics. Cursor-range (< 0x240) entries share the MobdId_Cursors surface.
+  // ---------------------------------------------------------------------------
+
+  // Cursors surface (MobdId_Cursors) - drag/select box variants beyond the set
+  // above; ENT_anim_set(*v19, ...) at kknd.c:42581/42585.
+  MOBD_CURSOR_DRAG_BOX_ALT_A = 0x224,   // 548
+  MOBD_CURSOR_DRAG_BOX_ALT_B = 0x230,   // 560
+
+  // Sidebar / production panel (Sidebar / IngameMenuUi surface).
+  MOBD_SIDEBAR_PROD_COUNTER   = 2276,   // ENT_anim_set_frame(counter,2276,digit) kknd.c:6606/19250 (airstrike + production count digits)
+  MOBD_SIDEBAR_PROD_QUEUE     = 2312,   // ENT_anim_set_frame(...,2312,count) kknd.c:19264 (production queue count)
+  MOBD_SIDEBAR_PROD_PANEL     = 2160,   // ENT_anim_set(...,2160) kknd.c:19246/19333
+  MOBD_SIDEBAR_PROD_PANEL_ALT = 1980,   // ENT_anim_set(...,1980) kknd.c:18897/19147
+
+  // Beast enclosure upgrade unlocks (per-unit sidebar production icon frame);
+  // UI_sidebar_prod_enable_unit(prod, type, frame) -> btn->icon_mobd_frame ->
+  // ENT_anim_set_frame. MSG_beast_enclosure_upgrades kknd.c:6805/6808/6811.
+  MOBD_SIDEBAR_ICON_MUTE_MONSTER_TRUCK = 2536,
+  MOBD_SIDEBAR_ICON_MUTE_TANKER        = 2608,
+  MOBD_SIDEBAR_ICON_MUTE_WAR_MASTADONT = 2520,
+  MOBD_SIDEBAR_ICON_MUTE_GIANT_BEETLE  = 2512,
+  MOBD_SIDEBAR_ICON_MUTE_MISSILE_CRAB  = 2504,
+
+  // Menu buttons (MainMenu / menu button surface); frame-indexed state anims.
+  MOBD_MENU_BUTTON_STATE_A = 1692,      // ENT_anim_set_frame(parent,1692,frame) UI_button_tick / UI_main_menu_multi_join
+  MOBD_MENU_BUTTON_STATE_B = 1704,      // ENT_anim_set_frame(parent,1704,frame)
+  MOBD_MENU_BUTTON_STATE_C = 1716,      // ENT_anim_set_frame(parent,1716,frame)
+  MOBD_MENU_MULTI_JOIN     = 1824,      // ENT_anim_set_frame(v4,1824,3) UI_main_menu_multi_join
+  MOBD_MENU_WAIT_CLICK_A   = 708,       // ENT_anim_set_frame(v5,708,highflight_frame) UI_button_wait_click
+  MOBD_MENU_WAIT_CLICK_B   = 720,       // ENT_anim_set_frame(v5,720,highflight_frame)
+
+  // Projectiles / effects (per-unit/effect surfaces).
+  MOBD_PROJ_MACHINEGUN_MUZZLE = 2184,   // ENT_anim_set_frame(...,2184,orientation) PROJ_mode_machinegun kknd.c:50921
+  MOBD_PROJ_VOLLEY            = 1152,    // ENT_anim_set(volley,1152) kknd.c:50482/50583
+
+  // Buildings.
+  MOBD_MOBILE_BASE_PLANT = 1232,        // ENT_anim_set_frame(unit,1232,0) UNIT_mobile_base_plant kknd.c:38576
 } WellKnownMobdIds;
 
 typedef enum : uint8_t
